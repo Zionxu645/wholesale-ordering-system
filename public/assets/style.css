@@ -661,3 +661,17 @@ body {
   .image-manager-grid { grid-template-columns: 1fr 1fr; }
   .share-actions { flex-direction: column; }
 }
+
+
+.form-note {
+  display: block;
+  margin: -2px 0 14px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+@media (max-width: 720px) {
+  .sku-row { align-items: flex-start; }
+  .sku-row > span:last-child { flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
+}

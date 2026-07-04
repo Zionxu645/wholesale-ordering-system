@@ -17,7 +17,7 @@ async function run() {
     assert.equal(health.status, 503);
     const healthJson = await health.json();
     assert.equal(healthJson.data.status, 'configuration_required');
-    assert.equal(healthJson.data.version, '3.1.0');
+    assert.equal(healthJson.data.version, '3.2.0');
 
     const home = await fetch(`${base}/`);
     assert.equal(home.status, 200);
@@ -41,6 +41,13 @@ async function run() {
     assert.match(serverSource, /Asia\/Shanghai/);
     assert.match(serverSource, /delivered:\s*'已送达'/);
     assert.match(serverSource, /formatShanghaiDateTime\(\)/);
+    assert.match(serverSource, /没有可更新的 SKU 字段/);
+    assert.match(serverSource, /SKU 编码或颜色尺码组合已存在/);
+    const adminSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'assets', 'admin.js'), 'utf8');
+    const adminHtml = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin.html'), 'utf8');
+    assert.match(adminSource, /showEditProduct/);
+    assert.match(adminSource, /showEditSku/);
+    assert.match(adminHtml, /编辑颜色\/尺码 SKU/);
     assert.match(migrationSource, /timezone\('Asia\/Shanghai', now\(\)\)/);
 
     const missing = await fetch(`${base}/api/not-exist`);

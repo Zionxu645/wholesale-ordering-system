@@ -253,8 +253,8 @@ async function loadProductsAdmin() {
       <div class="product-admin-content">
         <div class="product-admin-header"><div><div class="style-code">${escapeHtml(product.style_code)}</div><div class="product-admin-title">${escapeHtml(product.name)}</div><div class="product-admin-cat">${escapeHtml(product.category)} · ${product.images.length}张图片</div></div></div>
         ${product.description ? `<div class="muted-text product-description">${escapeHtml(product.description)}</div>` : ''}
-        <div class="product-admin-actions"><button class="btn btn-sm btn-outline" onclick="toggleProductStatus('${product.id}','${product.status}')">${product.status === 'on_sale' ? '下架' : '上架'}</button><button class="btn btn-sm btn-outline" onclick="manageProductImages('${product.id}')">图片管理</button><button class="btn btn-sm btn-outline" onclick="showShareMaterial('${product.id}')">朋友圈素材</button><button class="btn btn-sm btn-primary" onclick="showAddSku('${product.id}')">+ SKU</button></div>
-        <div class="sku-list">${product.skus.length ? product.skus.map(sku => `<div class="sku-row"><span>${escapeHtml(sku.color)} / ${escapeHtml(sku.size)}（${escapeHtml(sku.sku_code)}）</span><span><span class="${sku.stock < 20 ? 'danger-text' : 'muted-text'} sku-stock">库存 ${sku.stock}件</span> <button class="btn btn-sm btn-outline" onclick="editSku('${sku.id}',${sku.stock})">修改库存</button></span></div>`).join('') : '<div class="empty-state">暂无 SKU</div>'}</div>
+        <div class="product-admin-actions"><button class="btn btn-sm btn-outline" onclick="showEditProduct('${product.id}')">编辑商品</button><button class="btn btn-sm btn-outline" onclick="toggleProductStatus('${product.id}','${product.status}')">${product.status === 'on_sale' ? '下架' : '上架'}</button><button class="btn btn-sm btn-outline" onclick="manageProductImages('${product.id}')">图片管理</button><button class="btn btn-sm btn-outline" onclick="showShareMaterial('${product.id}')">朋友圈素材</button><button class="btn btn-sm btn-primary" onclick="showAddSku('${product.id}')">+ SKU</button></div>
+        <div class="sku-list">${product.skus.length ? product.skus.map(sku => `<div class="sku-row"><span>${escapeHtml(sku.color)} / ${escapeHtml(sku.size)}（${escapeHtml(sku.sku_code)}）</span><span><span class="${sku.stock < 20 ? 'danger-text' : 'muted-text'} sku-stock">库存 ${sku.stock}件</span> <button class="btn btn-sm btn-outline" onclick="showEditSku('${sku.id}')">编辑规格</button></span></div>`).join('') : '<div class="empty-state">暂无 SKU</div>'}</div>
       </div>
     </article>`;
   }).join('') : '<p class="empty-state">暂无商品，请先新增商品</p>';
@@ -269,15 +269,84 @@ async function toggleProductStatus(productId, currentStatus) {
   loadProductsAdmin();
 }
 
-async function editSku(skuId, currentStock) {
-  const input = prompt('请输入新的实际库存数量：', String(currentStock));
-  if (input === null) return;
-  const stock = Number.parseInt(input, 10);
-  if (!Number.isInteger(stock) || stock < 0) return alert('库存必须是非负整数');
-  const result = await api(`/skus/${skuId}`, { method: 'PATCH', body: JSON.stringify({ stock }) });
-  if (result.code !== 0) return alert(`更新失败：${result.message}`);
-  showToast('库存已更新');
-  loadProductsAdmin();
+function findProduct(productId) {
+  return productsCache.find(product => product.id === productId) || null;
+}
+
+function findSku(skuId) {
+  for (const product of productsCache) {
+    const sku = product.skus.find(item => item.id === skuId);
+    if (sku) return { product, sku };
+  }
+  return null;
+}
+
+function showEditProduct(productId) {
+  const product = findProduct(productId);
+  if (!product) return alert('未找到商品，请刷新页面后重试');
+  document.getElementById('editProductId').value = product.id;
+  document.getElementById('epName').value = product.name || '';
+  document.getElementById('epStyleCode').value = product.style_code || '';
+  document.getElementById('epCategory').value = product.category || '上衣';
+  document.getElementById('epDesc').value = product.description || '';
+  openModal('editProductModal');
+}
+
+async function updateProduct(event) {
+  event.preventDefault();
+  const productId = document.getElementById('editProductId').value;
+  const button = event.submitter;
+  button.disabled = true;
+  button.textContent = '保存中...';
+  try {
+    const result = await api(`/products/${productId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        name: document.getElementById('epName').value.trim(),
+        style_code: document.getElementById('epStyleCode').value.trim(),
+        category: document.getElementById('epCategory').value,
+        description: document.getElementById('epDesc').value.trim(),
+      }),
+    });
+    if (result.code !== 0) return alert(`保存失败：${result.message}`);
+    closeModal('editProductModal');
+    showToast('商品信息已更新');
+    await loadProductsAdmin();
+  } finally {
+    button.disabled = false;
+    button.textContent = '保存修改';
+  }
+}
+
+function showEditSku(skuId) {
+  const found = findSku(skuId);
+  if (!found) return alert('未找到该规格，请刷新页面后重试');
+  const { product, sku } = found;
+  document.getElementById('editSkuId').value = sku.id;
+  document.getElementById('editSkuProductName').textContent = `${product.name} · ${product.style_code}`;
+  document.getElementById('eskuCode').value = sku.sku_code || '';
+  document.getElementById('eskuColor').value = sku.color || '';
+  document.getElementById('eskuSize').value = sku.size || '';
+  document.getElementById('eskuStock').value = Number(sku.stock || 0);
+  openModal('editSkuModal');
+}
+
+async function updateSku(event) {
+  event.preventDefault();
+  const skuId = document.getElementById('editSkuId').value;
+  const result = await api(`/skus/${skuId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      sku_code: document.getElementById('eskuCode').value.trim(),
+      color: document.getElementById('eskuColor').value.trim(),
+      size: document.getElementById('eskuSize').value.trim(),
+      stock: Number(document.getElementById('eskuStock').value),
+    }),
+  });
+  if (result.code !== 0) return alert(`保存失败：${result.message}`);
+  closeModal('editSkuModal');
+  showToast('颜色、尺码和库存已更新');
+  await Promise.all([loadProductsAdmin(), loadDashboard()]);
 }
 
 function showAddProduct() {

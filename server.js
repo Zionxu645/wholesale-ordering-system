@@ -24,7 +24,7 @@ const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/,
 const IMAGE_BUCKET = process.env.SUPABASE_IMAGE_BUCKET || 'product-images';
 const ORDER_STATUSES = ['pending', 'confirmed', 'production', 'shipping', 'delivered', 'cancelled'];
 const INQUIRY_STATUSES = ['pending', 'contacted', 'quoted', 'considering', 'converted', 'lost'];
-const APP_VERSION = '3.1.0';
+const APP_VERSION = '3.2.0';
 const BUSINESS_TIME_ZONE = 'Asia/Shanghai';
 const SHANGHAI_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
 const ORDER_STATUS_LABELS = Object.freeze({
@@ -622,9 +622,21 @@ app.post('/api/products', requireDatabase, requireJwtSecret, auth, adminOnly, as
 
 app.patch('/api/products/:id', requireDatabase, requireJwtSecret, auth, adminOnly, asyncRoute(async (req, res) => {
   const updates = {};
-  if (req.body.name !== undefined) updates.name = cleanText(req.body.name, 100);
-  if (req.body.style_code !== undefined) updates.style_code = cleanText(req.body.style_code, 80).toUpperCase();
-  if (req.body.category !== undefined) updates.category = cleanText(req.body.category, 50);
+  if (req.body.name !== undefined) {
+    const name = cleanText(req.body.name, 100);
+    if (!name) return fail(res, 400, '商品名称不能为空');
+    updates.name = name;
+  }
+  if (req.body.style_code !== undefined) {
+    const styleCode = cleanText(req.body.style_code, 80).toUpperCase();
+    if (!styleCode) return fail(res, 400, '款号不能为空');
+    updates.style_code = styleCode;
+  }
+  if (req.body.category !== undefined) {
+    const category = cleanText(req.body.category, 50);
+    if (!category) return fail(res, 400, '商品分类不能为空');
+    updates.category = category;
+  }
   if (req.body.description !== undefined) updates.description = cleanText(req.body.description, 1000) || null;
   if (req.body.status !== undefined) {
     if (!['on_sale', 'off_sale'].includes(req.body.status)) return fail(res, 400, '商品状态无效');
@@ -747,12 +759,41 @@ app.post('/api/products/:id/skus', requireDatabase, requireJwtSecret, auth, admi
 }));
 
 app.patch('/api/skus/:id', requireDatabase, requireJwtSecret, auth, adminOnly, asyncRoute(async (req, res) => {
-  const stock = Number.parseInt(req.body.stock, 10);
-  if (!Number.isInteger(stock) || stock < 0) return fail(res, 400, '库存必须是非负整数');
-  const { data, error } = await supabase.from('product_skus').update({ stock }).eq('id', req.params.id).select('*').maybeSingle();
+  const updates = {};
+
+  if (req.body.sku_code !== undefined) {
+    const skuCode = cleanText(req.body.sku_code, 80).toUpperCase();
+    if (!skuCode) return fail(res, 400, 'SKU 编码不能为空');
+    updates.sku_code = skuCode;
+  }
+  if (req.body.color !== undefined) {
+    const color = cleanText(req.body.color, 50);
+    if (!color) return fail(res, 400, '颜色不能为空');
+    updates.color = color;
+  }
+  if (req.body.size !== undefined) {
+    const size = cleanText(req.body.size, 30);
+    if (!size) return fail(res, 400, '尺码不能为空');
+    updates.size = size;
+  }
+  if (req.body.stock !== undefined) {
+    const stock = Number.parseInt(req.body.stock, 10);
+    if (!Number.isInteger(stock) || stock < 0) return fail(res, 400, '库存必须是非负整数');
+    updates.stock = stock;
+  }
+
+  if (Object.keys(updates).length === 0) return fail(res, 400, '没有可更新的 SKU 字段');
+
+  const { data, error } = await supabase
+    .from('product_skus')
+    .update(updates)
+    .eq('id', req.params.id)
+    .select('*')
+    .maybeSingle();
+  if (error?.code === '23505') return fail(res, 409, 'SKU 编码或颜色尺码组合已存在');
   assertDb(error, '更新 SKU 失败');
   if (!data) return fail(res, 404, 'SKU 不存在');
-  return ok(res, normalizeSku(data, true), '库存已更新');
+  return ok(res, normalizeSku(data, true), 'SKU 已更新');
 }));
 
 // =========================
