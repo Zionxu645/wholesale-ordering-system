@@ -1,105 +1,71 @@
-# 服装批发订货 + ERP 管理系统
+# Eluren 服装电子选款册 + 询价/订单管理系统 V3
 
-这是统一修复后的 Supabase 版本，包含：
+这不是公开标价的网上商城，而是面向熟客批发业务的：
 
-- 客户手机号注册、登录、JWT 鉴权
-- 商品与 SKU（颜色、尺码、库存、批发价）
-- 数据库购物车
-- 购物车下单、订单明细、库存扣减
-- 客户数据隔离
-- ERP 管理员后台
-- 订单状态流转
-- 仪表盘统计和低库存提醒
-- 生产单 JSON 和 HTML 打印
-- GitHub / Render 部署配置
+> 朋友圈引流 → 网站浏览全部款式 → 客户提交选款询价 → 老板线下报价和确认库存 → 转为正式订单 → 生产/发货
+
+## 本版核心变化
+
+- 前台、询价单、订单和后台全部隐藏价格
+- 客户无需登录即可浏览和加入选款单
+- 提交询价时才需要手机号登录
+- 客户前台不显示精确库存，只显示“有货 / 少量 / 补货中”
+- 后台保留精确库存
+- 后台可直接上传商品图片到 Supabase Storage
+- 每个商品有独立分享链接
+- 后台可一键生成朋友圈文案和二维码
+- 新增询价管理：待联系、已联系、已报价、考虑中、已成交、未成交
+- 询价谈妥后转为正式订单，转换时才扣减库存
+- 正式订单继续支持确认、生产、发货、送达和生产单打印
+- 仪表盘改为询价、选款件数、在售款式和低库存，不再统计营收
 
 ## 目录
 
 ```text
-.
-├─ public/
-│  ├─ index.html            客户订货前台
-│  ├─ admin.html            ERP 管理后台
-│  └─ assets/
-├─ tests/smoke.js           无数据库启动测试
-├─ server.js                Express 后端
-├─ schema.sql               Supabase 正式建表脚本
-├─ seed-demo.sql            可选演示商品
-├─ .env.example             环境变量示例
-├─ .gitignore               Git 忽略规则
-├─ render.yaml              Render 配置
-├─ package.json
-└─ package-lock.json
+server.js                 Express 后端
+schema.sql                全新 Supabase 项目建表脚本
+migration-v3.sql          已运行旧版系统时的升级脚本
+seed-demo.sql             可选演示数据
+public/                   客户选款册与管理后台
+package.json
+package-lock.json
+render.yaml
+.env.example
+升级操作.txt
 ```
 
-## 一、创建 Supabase 数据库
+## 已经上线旧版时如何升级
 
-1. 登录 Supabase，新建一个项目。
-2. 打开左侧 **SQL Editor**。
-3. 新建查询，复制 `schema.sql` 的全部内容并执行。
-4. 正式使用前可以不执行 `seed-demo.sql`。需要测试页面时才执行它。
-5. 进入 **Project Settings → API**，准备：
-   - Project URL
-   - `service_role` key
+1. 先在 Supabase SQL Editor 执行 `migration-v3.sql`。
+2. 确认显示 `Success. No rows returned`。
+3. 再将本项目全部文件替换到 GitHub 仓库并 Push。
+4. Render 会自动部署。
+5. 部署成功后进入 `/admin` 测试：
+   - 新增商品并上传图片
+   - 添加颜色、尺码和库存
+   - 生成朋友圈素材
+   - 客户提交询价
+   - 后台转为正式订单
 
-`service_role` key 只能放在 Render 环境变量或本机 `.env` 中，不能放进前端，也不能提交到 GitHub。
+不要对已经有数据的 Supabase 项目重新执行 `schema.sql`；升级只运行 `migration-v3.sql`。
 
-## 二、本地运行
+## 全新安装
 
-需要 Node.js 22。
-
-```bash
-npm ci
-```
-
-复制环境变量文件：
-
-```bash
-copy .env.example .env
-```
-
-编辑 `.env`，至少填写：
+1. 新建 Supabase 项目。
+2. 在 SQL Editor 执行 `schema.sql`。
+3. 在 Render 配置：
 
 ```env
-SUPABASE_URL=你的项目URL
-SUPABASE_SERVICE_ROLE_KEY=你的service_role密钥
-JWT_SECRET=至少32位的随机字符串
+SUPABASE_URL=你的Supabase项目URL
+SUPABASE_SERVICE_ROLE_KEY=你的Secret key
+JWT_SECRET=至少32位随机字符串
 ADMIN_PHONE=管理员手机号
-ADMIN_PASSWORD=管理员密码，至少8位
+ADMIN_PASSWORD=管理员密码
 ADMIN_NAME=老板
+SUPABASE_IMAGE_BUCKET=product-images
 ```
 
-启动：
-
-```bash
-npm start
-```
-
-访问：
-
-- 客户前台：`http://localhost:3000`
-- ERP 后台：`http://localhost:3000/admin`
-- 健康检查：`http://localhost:3000/api/health`
-
-首次启动时，如果设置了 `ADMIN_PHONE` 和 `ADMIN_PASSWORD`，服务会自动创建或更新管理员账号。
-
-## 三、部署 Render
-
-### Render 环境变量
-
-在 Render 服务的 Environment 中添加：
-
-| Key | Value |
-|---|---|
-| `SUPABASE_URL` | Supabase Project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service_role key |
-| `JWT_SECRET` | 至少 32 位随机字符串 |
-| `ADMIN_PHONE` | 管理员手机号 |
-| `ADMIN_PASSWORD` | 管理员密码，至少 8 位 |
-| `ADMIN_NAME` | 管理员名称 |
-| `NODE_VERSION` | `22.16.0` |
-
-Render 配置：
+4. Render：
 
 ```text
 Build Command: npm ci
@@ -107,88 +73,51 @@ Start Command: npm start
 Health Check Path: /api/health
 ```
 
-仓库中已包含 `render.yaml`，也可以使用 Blueprint 创建。
+## 图片规则
 
-## 四、订单状态规则
+- 支持 JPG、PNG、WEBP
+- 单张最大 8MB
+- 每个商品最多 10 张
+- 第一张自动设为封面
+- 图片保存在 Supabase Storage 的 `product-images` 桶中，不保存在 Render 本地
 
-```text
-pending → confirmed → production → shipping → delivered
-    └──────── cancelled
-confirmed ─── cancelled
-```
+## 询价与库存逻辑
 
-- 下单时会在 PostgreSQL 事务中检查库存、创建订单、扣减库存、清空购物车。
-- `pending` 或 `confirmed` 状态取消订单时，系统会自动归还库存。
-- 已进入生产或发货的订单不能直接取消，避免库存和生产数据混乱。
+客户提交询价时：
 
-## 五、API 响应格式
+- 不显示价格
+- 不扣减库存
+- 仅保存款式、颜色、尺码和需求数量
 
-成功：
+老板确认价格、库存和交期后，在后台点击“转为正式订单”：
 
-```json
-{ "code": 0, "data": {} }
-```
+- 系统再次检查库存
+- 成功后扣减库存
+- 生成正式订单
+- 可继续打印生产单并流转状态
 
-失败：
+## 本地检查
 
-```json
-{ "code": 1, "message": "错误说明" }
-```
-
-主要接口：
-
-```text
-POST   /api/auth/register
-POST   /api/auth/login
-GET    /api/auth/me
-
-GET    /api/products
-GET    /api/products/:id
-POST   /api/products                 管理员
-PATCH  /api/products/:id             管理员
-POST   /api/products/:id/skus        管理员
-PATCH  /api/skus/:id                 管理员
-
-GET    /api/cart
-POST   /api/cart/add
-PATCH  /api/cart/:skuId
-DELETE /api/cart/:skuId
-DELETE /api/cart
-
-POST   /api/orders
-GET    /api/orders
-GET    /api/orders/:id
-PATCH  /api/orders/:id/status        管理员
-
-GET    /api/dashboard                管理员
-GET    /api/customers                管理员
-POST   /api/customers                管理员
-GET    /api/orders/:id/production    管理员
-POST   /api/orders/:id/print-token   管理员
-```
-
-## 六、检查命令
+需要 Node.js 22：
 
 ```bash
+npm ci
 npm run check
 npm test
-npm audit --omit=dev
+npm start
 ```
 
-`npm test` 会验证：
+访问：
 
-- 未配置 Supabase 时服务不会启动崩溃
-- 健康检查会明确返回配置缺失
-- 前台和后台静态页面可以打开
-- 未知 API 返回统一 JSON 错误
+- 客户选款册：`http://localhost:3000`
+- 管理后台：`http://localhost:3000/admin`
+- 健康检查：`http://localhost:3000/api/health`
 
-完整数据库流程需要在执行 `schema.sql` 并配置 Supabase 后测试。
+## 安全说明
 
-## 七、安全说明
-
-- 不要提交 `.env`。
-- 不要提交 `node_modules`。
-- 不要把 `service_role` key 写进 HTML 或浏览器 JavaScript。
-- 正式上线必须修改 `JWT_SECRET` 和管理员密码。
-- 管理员打印链接使用 5 分钟有效的临时令牌。
-- Supabase 表已启用 RLS，浏览器不直接访问数据库，业务数据由 Node.js 服务端处理。
+- 不提交 `.env`
+- 不提交 `node_modules`
+- Supabase Secret key 只能放在 Render 环境变量或本机 `.env`
+- 浏览器不直接访问数据库
+- 管理员接口必须经过 JWT 和数据库角色双重检查
+- 生产单打印链接 5 分钟后失效

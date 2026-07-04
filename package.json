@@ -1,8 +1,8 @@
 {
   "name": "wholesale-ordering-system",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
-  "description": "服装批发订货与ERP管理系统（Express + Supabase）",
+  "description": "Eluren 服装电子选款册、询价与订单管理系统（Express + Supabase）",
   "main": "server.js",
   "engines": {
     "node": ">=22 <23"

@@ -3,31 +3,41 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>服装批发订货系统</title>
+  <meta name="description" content="Eluren 服装电子选款册：查看最新款式、颜色与尺码，提交选款询价。">
+  <title>Eluren 服装电子选款册</title>
   <link rel="stylesheet" href="/assets/style.css">
 </head>
-<body class="customer-page">
+<body class="customer-page catalog-v3">
   <header class="header">
     <div class="header-inner">
-      <div class="logo">
-        <span class="logo-icon">📦</span>
-        <span class="logo-text">服装批发订货平台</span>
-      </div>
+      <a class="logo" href="/" aria-label="返回选款册首页">
+        <span class="logo-mark">E</span>
+        <span><strong>Eluren</strong><small>服装电子选款册</small></span>
+      </a>
       <div class="header-actions">
-        <span id="userSummary" class="user-summary">未登录</span>
+        <span id="userSummary" class="user-summary">可直接浏览款式</span>
         <button id="loginButton" class="btn btn-sm btn-outline" onclick="openAuthModal('login')">登录/注册</button>
-        <button id="ordersButton" class="btn btn-sm btn-outline" onclick="openMyOrders()" style="display:none">我的订单</button>
+        <button id="inquiriesButton" class="btn btn-sm btn-outline" onclick="openMyInquiries()" style="display:none">我的询价</button>
+        <button id="ordersButton" class="btn btn-sm btn-outline" onclick="openMyOrders()" style="display:none">正式订单</button>
         <button id="logoutButton" class="btn btn-sm btn-outline" onclick="logout()" style="display:none">退出</button>
-        <div class="cart-badge" id="cartBadge" onclick="openCart()">
-          <span>🛒</span>
-          <span class="badge-count" id="cartCount">0</span>
-        </div>
+        <button class="selection-badge" id="selectionBadge" onclick="openSelection()" aria-label="打开选款单">
+          <span>📋</span><span class="selection-label">选款单</span><span class="badge-count" id="selectionCount">0</span>
+        </button>
       </div>
     </div>
   </header>
 
-  <div class="filter-bar">
-    <input type="text" id="searchInput" placeholder="搜索商品名称..." class="search-input">
+  <section class="catalog-hero">
+    <div>
+      <span class="hero-kicker">每日上新 · 全部现有款式集中查看</span>
+      <h1>先选款，再询价</h1>
+      <p>不公开价格。选择款式、颜色、尺码和数量后提交选款单，我们会联系确认报价与库存。</p>
+    </div>
+    <button class="btn btn-primary" onclick="document.getElementById('productGrid').scrollIntoView({behavior:'smooth'})">开始选款</button>
+  </section>
+
+  <div class="filter-bar catalog-filter">
+    <input type="search" id="searchInput" placeholder="搜索商品名称或款号..." class="search-input" autocomplete="off">
     <div class="category-tabs" id="categoryTabs">
       <button class="cat-btn active" data-cat="">全部</button>
       <button class="cat-btn" data-cat="上衣">上衣</button>
@@ -38,9 +48,7 @@
     </div>
   </div>
 
-  <main class="product-grid" id="productGrid">
-    <div class="loading">加载商品中...</div>
-  </main>
+  <main class="product-grid" id="productGrid"><div class="loading">加载款式中...</div></main>
 
   <div class="modal-overlay" id="authModal" style="display:none">
     <div class="modal auth-modal">
@@ -49,6 +57,7 @@
         <button id="loginTab" class="auth-tab active" onclick="switchAuthMode('login')">登录</button>
         <button id="registerTab" class="auth-tab" onclick="switchAuthMode('register')">注册</button>
       </div>
+      <p class="modal-intro">浏览和选款无需登录，提交询价时才需要账号。</p>
       <form id="loginForm" onsubmit="login(event)">
         <div class="form-group"><label>手机号</label><input id="loginPhone" type="tel" required autocomplete="username"></div>
         <div class="form-group"><label>密码</label><input id="loginPassword" type="password" required autocomplete="current-password"></div>
@@ -67,50 +76,59 @@
   </div>
 
   <div class="modal-overlay" id="productModal" style="display:none">
-    <div class="modal product-modal">
-      <button class="modal-close" onclick="closeModal('productModal')">✕</button>
+    <div class="modal product-modal catalog-product-modal">
+      <button class="modal-close" onclick="closeProductModal()">✕</button>
       <div id="productDetail"></div>
     </div>
   </div>
 
-  <div class="modal-overlay" id="cartModal" style="display:none">
+  <div class="modal-overlay" id="selectionModal" style="display:none">
     <div class="modal cart-modal">
-      <button class="modal-close" onclick="closeModal('cartModal')">✕</button>
-      <h2>🛒 订货清单</h2>
-      <div id="cartItems"></div>
-      <div class="cart-summary">
-        <div class="cart-total">
-          <span>合计件数：<strong id="cartTotalQty">0</strong> 件</span>
-          <span>合计金额：<strong class="price" id="cartTotalAmount">¥0.00</strong></span>
-        </div>
+      <button class="modal-close" onclick="closeModal('selectionModal')">✕</button>
+      <h2>📋 我的选款单</h2>
+      <p class="modal-intro">这里只记录款式和数量，不显示价格。提交后由我们联系报价和确认库存。</p>
+      <div id="selectionItems"></div>
+      <div class="selection-summary">
+        <span>共 <strong id="selectionStyleCount">0</strong> 个款式</span>
+        <span>合计 <strong id="selectionTotalQty">0</strong> 件</span>
       </div>
       <div class="cart-actions">
-        <button class="btn btn-secondary" onclick="clearCart()">清空</button>
-        <button class="btn btn-primary" onclick="showCheckout()">去下单</button>
+        <button class="btn btn-secondary" onclick="clearSelection()">清空</button>
+        <button class="btn btn-primary" onclick="showInquiryForm()">提交询价</button>
       </div>
     </div>
   </div>
 
-  <div class="modal-overlay" id="checkoutModal" style="display:none">
+  <div class="modal-overlay" id="inquiryModal" style="display:none">
     <div class="modal checkout-modal">
-      <button class="modal-close" onclick="closeModal('checkoutModal')">✕</button>
-      <h2>📝 确认订单</h2>
-      <form id="checkoutForm" onsubmit="submitOrder(event)">
-        <div class="form-group"><label>客户名称</label><input id="customerName" readonly></div>
-        <div class="form-group"><label>联系电话</label><input id="customerPhone" readonly></div>
-        <div class="form-group"><label>收货地址 *</label><textarea id="shippingAddress" required rows="2" maxlength="300"></textarea></div>
-        <div class="form-group"><label>订单备注</label><textarea id="remark" rows="2" maxlength="500" placeholder="特殊要求、交期说明等"></textarea></div>
-        <div id="checkoutItems" class="checkout-items"></div>
-        <div class="checkout-total"><span>应付总额：<strong class="price" id="checkoutTotal">¥0.00</strong></span></div>
-        <button type="submit" class="btn btn-primary btn-block">提交订单</button>
+      <button class="modal-close" onclick="closeModal('inquiryModal')">✕</button>
+      <h2>📝 提交询价</h2>
+      <form id="inquiryForm" onsubmit="submitInquiry(event)">
+        <div class="form-row">
+          <div class="form-group"><label>客户名称</label><input id="customerName" readonly></div>
+          <div class="form-group"><label>联系电话</label><input id="customerPhone" readonly></div>
+        </div>
+        <div class="form-group"><label>收货地区/地址（可选）</label><textarea id="shippingAddress" rows="2" maxlength="300"></textarea></div>
+        <div class="form-group"><label>需求备注</label><textarea id="inquiryRemark" rows="3" maxlength="1000" placeholder="例如：希望尽快发货、需要确认某个颜色库存、预计长期拿货等"></textarea></div>
+        <div id="inquiryItems" class="checkout-items"></div>
+        <div class="selection-summary"><span>选款合计</span><strong id="inquiryTotalQty">0 件</strong></div>
+        <button type="submit" class="btn btn-primary btn-block">提交选款询价</button>
       </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="inquiriesModal" style="display:none">
+    <div class="modal order-detail-modal">
+      <button class="modal-close" onclick="closeModal('inquiriesModal')">✕</button>
+      <h2>💬 我的询价</h2>
+      <div id="myInquiriesList"></div>
     </div>
   </div>
 
   <div class="modal-overlay" id="ordersModal" style="display:none">
     <div class="modal order-detail-modal">
       <button class="modal-close" onclick="closeModal('ordersModal')">✕</button>
-      <h2>📋 我的订单</h2>
+      <h2>📦 正式订单</h2>
       <div id="myOrdersList"></div>
     </div>
   </div>
@@ -118,10 +136,10 @@
   <div class="modal-overlay" id="successModal" style="display:none">
     <div class="modal success-modal">
       <div class="success-icon">✅</div>
-      <h2>订单提交成功</h2>
-      <p id="successOrderNo"></p>
-      <p class="success-amount" id="successAmount"></p>
-      <button class="btn btn-primary btn-block" onclick="closeModal('successModal');loadProducts()">继续选货</button>
+      <h2>询价提交成功</h2>
+      <p id="successInquiryNo"></p>
+      <p class="success-note">我们会根据选款内容联系你确认价格、库存和交期。</p>
+      <button class="btn btn-primary btn-block" onclick="closeModal('successModal');loadProducts()">继续选款</button>
     </div>
   </div>
 

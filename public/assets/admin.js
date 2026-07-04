@@ -1,50 +1,77 @@
 'use strict';
 
 const API = '/api';
-const ADMIN_TOKEN_KEY = 'wholesale_admin_token';
-let adminToken = localStorage.getItem(ADMIN_TOKEN_KEY) || '';
+const TOKEN_KEY = 'wholesale_admin_token';
+let token = localStorage.getItem(TOKEN_KEY) || '';
 let adminUser = null;
-let currentOrderFilter = { status: '' };
+let currentInquiryFilter = '';
+let currentOrderFilter = '';
+let productsCache = [];
+let currentShareData = null;
 
 function escapeHtml(value) {
-  return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 }
-function money(value) { return Number(value || 0).toFixed(2); }
 
 async function api(path, options = {}) {
   const headers = { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) };
-  if (adminToken) headers.Authorization = `Bearer ${adminToken}`;
+  if (token) headers.Authorization = `Bearer ${token}`;
   let response;
   try {
     response = await fetch(`${API}${path}`, { ...options, headers });
   } catch (_) {
-    throw new Error('网络连接失败，请检查服务是否启动');
+    throw new Error('网络连接失败，请稍后重试');
   }
   const contentType = response.headers.get('content-type') || '';
   const result = contentType.includes('application/json') ? await response.json() : { code: 1, message: await response.text() };
-  if (response.status === 401 && !path.startsWith('/auth/login')) showAdminLogin('登录已失效，请重新登录');
+  if (response.status === 401 && !path.startsWith('/auth/login')) logoutAdmin(true);
   return result;
 }
 
-function showAdminLogin(message = '') {
-  adminToken = '';
-  adminUser = null;
-  localStorage.removeItem(ADMIN_TOKEN_KEY);
-  document.getElementById('adminLoginError').textContent = message;
-  document.getElementById('adminLoginModal').style.display = 'flex';
-  document.getElementById('adminSummary').textContent = '未登录';
-  document.getElementById('adminLogout').style.display = 'none';
+async function apiFile(path, file) {
+  const headers = { 'Content-Type': file.type, 'X-File-Name': encodeURIComponent(file.name || 'image') };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetch(`${API}${path}`, { method: 'POST', body: file, headers });
+  const contentType = response.headers.get('content-type') || '';
+  const result = contentType.includes('application/json') ? await response.json() : { code: 1, message: await response.text() };
+  if (response.status === 401) logoutAdmin(true);
+  return result;
+}
+
+async function uploadFiles(productId, files) {
+  const uploaded = [];
+  for (const file of files) {
+    if (file.size > 8 * 1024 * 1024) throw new Error(`${file.name} 超过 8MB`);
+    const result = await apiFile(`/products/${productId}/images`, file);
+    if (result.code !== 0) throw new Error(result.message || `${file.name} 上传失败`);
+    uploaded.push(result.data);
+  }
+  return uploaded;
+}
+
+function renderAdminSession() {
+  const loggedIn = Boolean(adminUser);
+  document.getElementById('adminSummary').textContent = loggedIn ? `${adminUser.name}（管理员）` : '未登录';
+  document.getElementById('adminLogout').style.display = loggedIn ? '' : 'none';
+  document.getElementById('adminLoginModal').style.display = loggedIn ? 'none' : 'flex';
 }
 
 async function initializeAdmin() {
-  if (!adminToken) return showAdminLogin();
-  const result = await api('/auth/me');
-  if (result.code !== 0 || result.data.role !== 'admin') return showAdminLogin('该账号没有管理员权限');
-  adminUser = result.data;
-  document.getElementById('adminSummary').textContent = `${adminUser.name} · ${adminUser.phone}`;
-  document.getElementById('adminLogout').style.display = '';
-  document.getElementById('adminLoginModal').style.display = 'none';
-  await loadDashboard();
+  if (!token) return renderAdminSession();
+  try {
+    const result = await api('/auth/me');
+    if (result.code !== 0 || result.data.role !== 'admin') return logoutAdmin(true);
+    adminUser = result.data;
+    renderAdminSession();
+    await loadDashboard();
+  } catch (_) {
+    logoutAdmin(true);
+  }
 }
 
 async function loginAdmin(event) {
@@ -57,100 +84,160 @@ async function loginAdmin(event) {
   });
   if (result.code !== 0) return error.textContent = result.message || '登录失败';
   if (result.data.user.role !== 'admin') return error.textContent = '该账号不是管理员';
-  adminToken = result.data.token;
+  token = result.data.token;
   adminUser = result.data.user;
-  localStorage.setItem(ADMIN_TOKEN_KEY, adminToken);
-  document.getElementById('adminSummary').textContent = `${adminUser.name} · ${adminUser.phone}`;
-  document.getElementById('adminLogout').style.display = '';
-  document.getElementById('adminLoginModal').style.display = 'none';
-  await loadDashboard();
+  localStorage.setItem(TOKEN_KEY, token);
+  renderAdminSession();
+  showToast('登录成功');
+  loadDashboard();
 }
 
-function logoutAdmin() { showAdminLogin('已退出后台'); }
+function logoutAdmin(silent = false) {
+  token = '';
+  adminUser = null;
+  localStorage.removeItem(TOKEN_KEY);
+  renderAdminSession();
+  if (!silent) showToast('已退出后台');
+}
 
 function switchView(view) {
-  document.querySelectorAll('.view').forEach(element => element.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(element => element.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(item => item.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
   document.getElementById(`view-${view}`).classList.add('active');
   document.querySelector(`.nav-item[data-view="${view}"]`).classList.add('active');
   if (view === 'dashboard') loadDashboard();
+  if (view === 'inquiries') loadInquiries();
   if (view === 'orders') loadOrders();
   if (view === 'products') loadProductsAdmin();
   if (view === 'customers') loadCustomers();
 }
 
 async function loadDashboard() {
-  if (!adminToken) return;
   const result = await api('/dashboard');
   if (result.code !== 0) return showDataError('statsGrid', result.message);
   const data = result.data;
-  document.getElementById('statsGrid').innerHTML = `
-    <div class="stat-card"><div class="stat-card-label">今日订单</div><div class="stat-card-value orders">${data.today_orders}</div></div>
-    <div class="stat-card"><div class="stat-card-label">今日营收</div><div class="stat-card-value revenue">¥${money(data.today_revenue)}</div></div>
-    <div class="stat-card"><div class="stat-card-label">累计营收</div><div class="stat-card-value revenue">¥${money(data.total_revenue)}</div></div>
-    <div class="stat-card"><div class="stat-card-label">待处理订单</div><div class="stat-card-value orders">${data.pending}</div></div>
-    <div class="stat-card"><div class="stat-card-label">商品总数</div><div class="stat-card-value products">${data.total_products}</div></div>
-    <div class="stat-card"><div class="stat-card-label">客户总数</div><div class="stat-card-value customers">${data.total_customers}</div></div>`;
+  const cards = [
+    ['今日新增询价', data.today_inquiries, '💬'],
+    ['待联系客户', data.pending_inquiries, '📞'],
+    ['今日选款件数', data.today_selected_quantity, '👕'],
+    ['本月正式订单', data.monthly_orders, '📦'],
+    ['在售款式', data.on_sale_products, '🗂️'],
+    ['客户数量', data.total_customers, '👥'],
+  ];
+  document.getElementById('statsGrid').innerHTML = cards.map(card => `<div class="stat-card"><div class="stat-icon">${card[2]}</div><div><div class="stat-value">${card[1]}</div><div class="stat-label">${card[0]}</div></div></div>`).join('');
   document.getElementById('lowStockList').innerHTML = data.low_stock_skus.length
-    ? data.low_stock_skus.map(sku => `<div class="low-stock-item"><span>${escapeHtml(sku.sku_code)}（${escapeHtml(sku.color)}/${escapeHtml(sku.size)}）</span><span class="danger-text">仅剩${sku.stock}件</span></div>`).join('')
-    : '<p class="empty-state">暂无低库存商品</p>';
+    ? data.low_stock_skus.map(item => `<div class="low-stock-item"><div><strong>${escapeHtml(item.product_name || item.sku_code)}</strong><span>${escapeHtml(item.style_code || '')} · ${escapeHtml(item.color)}/${escapeHtml(item.size)}</span></div><b class="${item.stock <= 0 ? 'danger-text' : ''}">${item.stock}件</b></div>`).join('')
+    : '<div class="empty-state">暂无低库存 SKU</div>';
+  const labels = inquiryStatusLabels();
+  document.getElementById('recentInquiries').innerHTML = data.recent_inquiries.length
+    ? data.recent_inquiries.map(item => `<div class="recent-order-item"><div><strong>${escapeHtml(item.inquiry_no)}</strong><span>${escapeHtml(item.customer_name)} · ${item.total_quantity}件</span></div><span class="badge inquiry-${item.status}">${labels[item.status]}</span></div>`).join('')
+    : '<div class="empty-state">暂无询价</div>';
+}
 
-  const orders = await api('/orders?page=1&page_size=5');
-  const labels = statusLabels();
-  document.getElementById('recentOrders').innerHTML = orders.code === 0 && orders.data.length
-    ? orders.data.map(order => `<div class="recent-order-item"><div><strong>${escapeHtml(order.order_no)}</strong><br><span>${escapeHtml(order.customer_name)} · ${order.total_quantity}件</span></div><div class="text-right"><span class="price">¥${money(order.total_amount)}</span><br><span class="badge badge-${order.status}">${labels[order.status]}</span></div></div>`).join('')
-    : '<p class="empty-state">暂无订单</p>';
+async function loadInquiries() {
+  const params = currentInquiryFilter ? `?status=${encodeURIComponent(currentInquiryFilter)}` : '';
+  const result = await api(`/inquiries${params}`);
+  const body = document.getElementById('inquiriesBody');
+  if (result.code !== 0) return body.innerHTML = `<tr><td colspan="6" class="form-error">${escapeHtml(result.message)}</td></tr>`;
+  const labels = inquiryStatusLabels();
+  body.innerHTML = result.data.length ? result.data.map(inquiry => `<tr>
+    <td><strong>${escapeHtml(inquiry.inquiry_no)}</strong></td>
+    <td>${escapeHtml(inquiry.customer_name)}<br><span class="muted-text">${escapeHtml(inquiry.customer_phone)}</span></td>
+    <td>${inquiry.total_quantity}件</td>
+    <td><span class="badge inquiry-${inquiry.status}">${labels[inquiry.status]}</span></td>
+    <td>${escapeHtml(formatTime(inquiry.created_at))}</td>
+    <td><button class="btn btn-sm btn-outline" onclick="showInquiryDetail('${inquiry.id}')">详情</button></td>
+  </tr>`).join('') : '<tr><td colspan="6" class="empty-state">暂无询价单</td></tr>';
+}
+
+async function showInquiryDetail(id) {
+  const result = await api(`/inquiries/${id}`);
+  if (result.code !== 0) return alert(result.message || '读取失败');
+  const inquiry = result.data;
+  const labels = inquiryStatusLabels();
+  const nextActions = {
+    pending: [['contacted', '标记已联系'], ['lost', '标记未成交']],
+    contacted: [['quoted', '标记已报价'], ['considering', '客户考虑中'], ['lost', '标记未成交']],
+    quoted: [['considering', '客户考虑中'], ['contacted', '返回已联系'], ['lost', '标记未成交']],
+    considering: [['quoted', '重新报价'], ['contacted', '返回已联系'], ['lost', '标记未成交']],
+  };
+  const statusButtons = (nextActions[inquiry.status] || []).map(([status, label]) => `<button class="btn btn-sm ${status === 'lost' ? 'btn-danger' : 'btn-outline'}" onclick="updateInquiryStatus('${inquiry.id}','${status}')">${label}</button>`).join('');
+  const convertButton = ['pending', 'contacted', 'quoted', 'considering'].includes(inquiry.status)
+    ? `<button class="btn btn-sm btn-success" onclick="convertInquiry('${inquiry.id}')">转为正式订单</button>` : '';
+  document.getElementById('inquiryDetailContent').innerHTML = `
+    <div class="order-detail-header"><div><div class="order-no">${escapeHtml(inquiry.inquiry_no)}</div><span class="badge inquiry-${inquiry.status}">${labels[inquiry.status]}</span></div><div class="text-right"><strong>${inquiry.total_quantity}件</strong><div class="muted-text">${escapeHtml(formatTime(inquiry.created_at))}</div></div></div>
+    <div class="order-meta"><div class="order-meta-item"><span class="order-meta-label">客户：</span>${escapeHtml(inquiry.customer_name)}</div><div class="order-meta-item"><span class="order-meta-label">电话：</span>${escapeHtml(inquiry.customer_phone)}</div><div class="order-meta-item"><span class="order-meta-label">店铺：</span>${escapeHtml(inquiry.customer_company || '-')}</div><div class="order-meta-item full-row"><span class="order-meta-label">地址：</span>${escapeHtml(inquiry.shipping_address || '未填写')}</div>${inquiry.remark ? `<div class="order-meta-item full-row"><span class="order-meta-label">需求备注：</span>${escapeHtml(inquiry.remark)}</div>` : ''}</div>
+    <h3>选款明细</h3><table class="order-items-table"><thead><tr><th>商品</th><th>款号</th><th>SKU</th><th>颜色/尺码</th><th>数量</th></tr></thead><tbody>${inquiry.items.map(item => `<tr><td>${escapeHtml(item.product_name)}</td><td>${escapeHtml(item.style_code)}</td><td>${escapeHtml(item.sku_code)}</td><td>${escapeHtml(item.color)}/${escapeHtml(item.size)}</td><td>${item.quantity}件</td></tr>`).join('')}</tbody></table>
+    <div class="order-status-actions">${statusButtons}${convertButton}${!statusButtons && !convertButton ? '<span class="muted-text">该询价单已结束</span>' : ''}</div>`;
+  openModal('inquiryDetailModal');
+}
+
+async function updateInquiryStatus(id, status) {
+  if (!confirm(`确认更新询价状态为“${inquiryStatusLabels()[status]}”？`)) return;
+  const result = await api(`/inquiries/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
+  if (result.code !== 0) return alert(`更新失败：${result.message}`);
+  closeModal('inquiryDetailModal');
+  showToast('询价状态已更新');
+  await Promise.all([loadInquiries(), loadDashboard()]);
+}
+
+async function convertInquiry(id) {
+  if (!confirm('确认已经与客户谈妥价格、库存和交期，并转为正式订单？转换后会扣减实际库存。')) return;
+  const result = await api(`/inquiries/${id}/convert`, { method: 'POST' });
+  if (result.code !== 0) return alert(`转换失败：${result.message}`);
+  closeModal('inquiryDetailModal');
+  alert(`转换成功，正式订单号：${result.data.order_no}`);
+  await Promise.all([loadInquiries(), loadOrders(), loadDashboard(), loadProductsAdmin()]);
 }
 
 async function loadOrders() {
-  const params = new URLSearchParams();
-  if (currentOrderFilter.status) params.set('status', currentOrderFilter.status);
-  const result = await api(`/orders?${params}`);
+  const params = currentOrderFilter ? `?status=${encodeURIComponent(currentOrderFilter)}` : '';
+  const result = await api(`/orders${params}`);
   const body = document.getElementById('ordersBody');
-  if (result.code !== 0) return body.innerHTML = `<tr><td colspan="7" class="form-error">${escapeHtml(result.message)}</td></tr>`;
-  const labels = statusLabels();
+  if (result.code !== 0) return body.innerHTML = `<tr><td colspan="6" class="form-error">${escapeHtml(result.message)}</td></tr>`;
+  const labels = orderStatusLabels();
   body.innerHTML = result.data.length ? result.data.map(order => `<tr>
     <td><strong>${escapeHtml(order.order_no)}</strong></td>
     <td>${escapeHtml(order.customer_name)}<br><span class="muted-text">${escapeHtml(order.customer_phone)}</span></td>
-    <td>${order.total_quantity}件</td><td class="price">¥${money(order.total_amount)}</td>
-    <td><span class="badge badge-${order.status}">${labels[order.status] || order.status}</span></td>
+    <td>${order.total_quantity}件</td>
+    <td><span class="badge badge-${order.status}">${labels[order.status]}</span></td>
     <td>${escapeHtml(formatTime(order.created_at))}</td>
     <td><button class="btn btn-sm btn-outline" onclick="showOrderDetail('${order.id}')">详情</button></td>
-  </tr>`).join('') : '<tr><td colspan="7" class="empty-state">暂无订单</td></tr>';
+  </tr>`).join('') : '<tr><td colspan="6" class="empty-state">暂无正式订单</td></tr>';
 }
 
 async function showOrderDetail(id) {
   const result = await api(`/orders/${id}`);
-  if (result.code !== 0) return alert(result.message || '读取订单失败');
+  if (result.code !== 0) return alert(result.message || '读取失败');
   const order = result.data;
-  const labels = statusLabels();
+  const labels = orderStatusLabels();
   const flow = {
-    pending: [{ status: 'confirmed', label: '确认订单', className: 'btn-primary' }, { status: 'cancelled', label: '取消订单', className: 'btn-danger' }],
-    confirmed: [{ status: 'production', label: '开始生产', className: 'btn-primary' }, { status: 'cancelled', label: '取消订单', className: 'btn-danger' }],
-    production: [{ status: 'shipping', label: '开始发货', className: 'btn-primary' }],
-    shipping: [{ status: 'delivered', label: '确认送达', className: 'btn-success' }],
+    pending: [['confirmed', '确认订单', 'btn-primary'], ['cancelled', '取消订单', 'btn-danger']],
+    confirmed: [['production', '开始生产', 'btn-primary'], ['cancelled', '取消订单', 'btn-danger']],
+    production: [['shipping', '开始发货', 'btn-primary']],
+    shipping: [['delivered', '确认送达', 'btn-success']],
   };
-  const actions = (flow[order.status] || []).map(action => `<button class="btn btn-sm ${action.className}" onclick="updateStatus('${order.id}','${action.status}')">${action.label}</button>`).join('');
+  const actions = (flow[order.status] || []).map(([status, label, className]) => `<button class="btn btn-sm ${className}" onclick="updateOrderStatus('${order.id}','${status}')">${label}</button>`).join('');
   document.getElementById('orderDetailContent').innerHTML = `
-    <div class="order-detail-header"><div><div class="order-no">${escapeHtml(order.order_no)}</div><span class="badge badge-${order.status}">${labels[order.status]}</span></div><div class="text-right"><div class="price large-price">¥${money(order.total_amount)}</div><div class="muted-text">${order.total_quantity}件</div></div></div>
-    <div class="order-meta"><div class="order-meta-item"><span class="order-meta-label">客户：</span>${escapeHtml(order.customer_name)}</div><div class="order-meta-item"><span class="order-meta-label">电话：</span>${escapeHtml(order.customer_phone)}</div><div class="order-meta-item full-row"><span class="order-meta-label">地址：</span>${escapeHtml(order.shipping_address)}</div><div class="order-meta-item"><span class="order-meta-label">下单时间：</span>${escapeHtml(formatTime(order.created_at))}</div>${order.remark ? `<div class="order-meta-item full-row"><span class="order-meta-label">备注：</span>${escapeHtml(order.remark)}</div>` : ''}</div>
-    <h3>订单明细</h3><table class="order-items-table"><thead><tr><th>商品</th><th>SKU</th><th>颜色/尺码</th><th>数量</th><th>单价</th><th>小计</th></tr></thead><tbody>${order.items.map(item => `<tr><td>${escapeHtml(item.product_name)}</td><td>${escapeHtml(item.sku_code)}</td><td>${escapeHtml(item.color)}/${escapeHtml(item.size)}</td><td>${item.quantity}件</td><td>¥${money(item.unit_price)}</td><td class="price">¥${money(item.subtotal)}</td></tr>`).join('')}</tbody></table>
+    <div class="order-detail-header"><div><div class="order-no">${escapeHtml(order.order_no)}</div><span class="badge badge-${order.status}">${labels[order.status]}</span></div><div class="text-right"><strong>${order.total_quantity}件</strong><div class="muted-text">${escapeHtml(formatTime(order.created_at))}</div></div></div>
+    <div class="order-meta"><div class="order-meta-item"><span class="order-meta-label">客户：</span>${escapeHtml(order.customer_name)}</div><div class="order-meta-item"><span class="order-meta-label">电话：</span>${escapeHtml(order.customer_phone)}</div><div class="order-meta-item full-row"><span class="order-meta-label">地址：</span>${escapeHtml(order.shipping_address || '未填写')}</div>${order.remark ? `<div class="order-meta-item full-row"><span class="order-meta-label">备注：</span>${escapeHtml(order.remark)}</div>` : ''}</div>
+    <h3>订单明细</h3><table class="order-items-table"><thead><tr><th>商品</th><th>SKU</th><th>颜色/尺码</th><th>数量</th></tr></thead><tbody>${order.items.map(item => `<tr><td>${escapeHtml(item.product_name)}</td><td>${escapeHtml(item.sku_code)}</td><td>${escapeHtml(item.color)}/${escapeHtml(item.size)}</td><td>${item.quantity}件</td></tr>`).join('')}</tbody></table>
     <div class="order-status-actions"><button class="btn btn-sm btn-outline" onclick="printProduction('${order.id}')">打印生产单</button>${actions || '<span class="muted-text">订单已完成或已取消</span>'}</div>`;
   openModal('orderDetailModal');
 }
 
-async function updateStatus(orderId, status) {
-  if (!confirm(`确认更新订单状态为“${statusLabels()[status]}”？`)) return;
-  const result = await api(`/orders/${orderId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
+async function updateOrderStatus(id, status) {
+  if (!confirm(`确认更新订单状态为“${orderStatusLabels()[status]}”？`)) return;
+  const result = await api(`/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
   if (result.code !== 0) return alert(`更新失败：${result.message}`);
   closeModal('orderDetailModal');
-  showToast('状态更新成功');
-  await Promise.all([loadOrders(), loadDashboard()]);
+  showToast('订单状态已更新');
+  await Promise.all([loadOrders(), loadDashboard(), loadProductsAdmin()]);
 }
 
-async function printProduction(orderId) {
-  const result = await api(`/orders/${orderId}/print-token`, { method: 'POST' });
-  if (result.code !== 0) return alert(`生成打印单失败：${result.message}`);
+async function printProduction(id) {
+  const result = await api(`/orders/${id}/print-token`, { method: 'POST' });
+  if (result.code !== 0) return alert(`生成生产单失败：${result.message}`);
   window.open(result.data.url, '_blank', 'noopener');
 }
 
@@ -158,13 +245,20 @@ async function loadProductsAdmin() {
   const result = await api('/products?status=all');
   const grid = document.getElementById('productAdminGrid');
   if (result.code !== 0) return grid.innerHTML = `<p class="form-error">${escapeHtml(result.message)}</p>`;
-  grid.innerHTML = result.data.length ? result.data.map(product => `<div class="product-admin-card">
-    <div class="product-admin-header"><div><div class="product-admin-title">${escapeHtml(product.name)}</div><div class="product-admin-cat">${escapeHtml(product.category)} · ${product.status === 'on_sale' ? '在售' : '已下架'}</div></div><div><button class="btn btn-sm btn-outline" onclick="toggleProductStatus('${product.id}','${product.status}')">${product.status === 'on_sale' ? '下架' : '上架'}</button> <button class="btn btn-sm btn-outline" onclick="showAddSku('${product.id}')">+ SKU</button></div></div>
-    ${product.description ? `<div class="muted-text product-description">${escapeHtml(product.description)}</div>` : ''}
-    <div class="sku-list">${product.skus.length ? product.skus.map(sku => `<div class="sku-row"><span>${escapeHtml(sku.color)} / ${escapeHtml(sku.size)}（${escapeHtml(sku.sku_code)}）</span><span><span class="price">¥${money(sku.wholesale_price)}</span><span class="${sku.stock < 50 ? 'danger-text' : 'muted-text'} sku-stock">${sku.stock}件</span> <button class="btn btn-sm btn-outline" onclick="editSku('${sku.id}',${sku.stock},${sku.wholesale_price})">编辑</button></span></div>`).join('') : '<div class="empty-state">暂无 SKU</div>'}</div>
-  </div>`).join('') : '<p class="empty-state">暂无商品，请先新增商品</p>';
+  productsCache = result.data;
+  grid.innerHTML = result.data.length ? result.data.map(product => {
+    const cover = product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}">` : '<div class="admin-product-placeholder">👕</div>';
+    return `<article class="product-admin-card">
+      <div class="admin-product-cover">${cover}<span class="badge ${product.status === 'on_sale' ? 'badge-delivered' : 'badge-cancelled'}">${product.status === 'on_sale' ? '在售' : '已下架'}</span></div>
+      <div class="product-admin-content">
+        <div class="product-admin-header"><div><div class="style-code">${escapeHtml(product.style_code)}</div><div class="product-admin-title">${escapeHtml(product.name)}</div><div class="product-admin-cat">${escapeHtml(product.category)} · ${product.images.length}张图片</div></div></div>
+        ${product.description ? `<div class="muted-text product-description">${escapeHtml(product.description)}</div>` : ''}
+        <div class="product-admin-actions"><button class="btn btn-sm btn-outline" onclick="toggleProductStatus('${product.id}','${product.status}')">${product.status === 'on_sale' ? '下架' : '上架'}</button><button class="btn btn-sm btn-outline" onclick="manageProductImages('${product.id}')">图片管理</button><button class="btn btn-sm btn-outline" onclick="showShareMaterial('${product.id}')">朋友圈素材</button><button class="btn btn-sm btn-primary" onclick="showAddSku('${product.id}')">+ SKU</button></div>
+        <div class="sku-list">${product.skus.length ? product.skus.map(sku => `<div class="sku-row"><span>${escapeHtml(sku.color)} / ${escapeHtml(sku.size)}（${escapeHtml(sku.sku_code)}）</span><span><span class="${sku.stock < 20 ? 'danger-text' : 'muted-text'} sku-stock">库存 ${sku.stock}件</span> <button class="btn btn-sm btn-outline" onclick="editSku('${sku.id}',${sku.stock})">修改库存</button></span></div>`).join('') : '<div class="empty-state">暂无 SKU</div>'}</div>
+      </div>
+    </article>`;
+  }).join('') : '<p class="empty-state">暂无商品，请先新增商品</p>';
 }
-
 
 async function toggleProductStatus(productId, currentStatus) {
   const nextStatus = currentStatus === 'on_sale' ? 'off_sale' : 'on_sale';
@@ -175,60 +269,179 @@ async function toggleProductStatus(productId, currentStatus) {
   loadProductsAdmin();
 }
 
-async function editSku(skuId, currentStock, currentPrice) {
-  const stockInput = prompt('请输入新库存数量：', String(currentStock));
-  if (stockInput === null) return;
-  const priceInput = prompt('请输入新批发价：', String(currentPrice));
-  if (priceInput === null) return;
-  const stock = Number.parseInt(stockInput, 10);
-  const wholesalePrice = Number(priceInput);
-  if (!Number.isInteger(stock) || stock < 0 || !Number.isFinite(wholesalePrice) || wholesalePrice < 0) return alert('库存或价格格式无效');
-  const result = await api(`/skus/${skuId}`, { method: 'PATCH', body: JSON.stringify({ stock, wholesale_price: wholesalePrice }) });
+async function editSku(skuId, currentStock) {
+  const input = prompt('请输入新的实际库存数量：', String(currentStock));
+  if (input === null) return;
+  const stock = Number.parseInt(input, 10);
+  if (!Number.isInteger(stock) || stock < 0) return alert('库存必须是非负整数');
+  const result = await api(`/skus/${skuId}`, { method: 'PATCH', body: JSON.stringify({ stock }) });
   if (result.code !== 0) return alert(`更新失败：${result.message}`);
-  showToast('SKU 已更新');
+  showToast('库存已更新');
   loadProductsAdmin();
 }
 
-function showAddProduct() { openModal('addProductModal'); }
+function showAddProduct() {
+  document.getElementById('addProductForm').reset();
+  openModal('addProductModal');
+}
+
 async function createProduct(event) {
   event.preventDefault();
-  const result = await api('/products', { method: 'POST', body: JSON.stringify({ name: document.getElementById('pName').value.trim(), category: document.getElementById('pCategory').value, description: document.getElementById('pDesc').value.trim(), image_url: document.getElementById('pImage').value.trim() }) });
-  if (result.code !== 0) return alert(`创建失败：${result.message}`);
-  closeModal('addProductModal');
-  event.target.reset();
-  showToast('商品创建成功');
-  loadProductsAdmin();
+  const button = event.submitter;
+  button.disabled = true;
+  button.textContent = '创建中...';
+  try {
+    const result = await api('/products', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: document.getElementById('pName').value.trim(),
+        style_code: document.getElementById('pStyleCode').value.trim(),
+        category: document.getElementById('pCategory').value,
+        description: document.getElementById('pDesc').value.trim(),
+      }),
+    });
+    if (result.code !== 0) return alert(`创建失败：${result.message}`);
+    const files = [...document.getElementById('pImages').files];
+    if (files.length) {
+      try {
+        await uploadFiles(result.data.id, files);
+      } catch (error) {
+        alert(`商品已创建，但部分图片上传失败：${error.message}`);
+      }
+    }
+    closeModal('addProductModal');
+    showToast('商品创建成功');
+    loadProductsAdmin();
+  } finally {
+    button.disabled = false;
+    button.textContent = '创建商品';
+  }
 }
+
 function showAddSku(productId) {
   document.getElementById('skuProductId').value = productId;
   document.getElementById('skuCode').value = '';
   document.getElementById('skuColor').value = '';
   document.getElementById('skuSize').value = '';
   document.getElementById('skuStock').value = '0';
-  document.getElementById('skuWholesalePrice').value = '';
-  document.getElementById('skuRetailPrice').value = '';
   openModal('addSkuModal');
 }
+
 async function addSku(event) {
   event.preventDefault();
   const productId = document.getElementById('skuProductId').value;
-  const result = await api(`/products/${productId}/skus`, { method: 'POST', body: JSON.stringify({ sku_code: document.getElementById('skuCode').value.trim(), color: document.getElementById('skuColor').value.trim(), size: document.getElementById('skuSize').value.trim(), stock: Number(document.getElementById('skuStock').value), wholesale_price: Number(document.getElementById('skuWholesalePrice').value), retail_price: document.getElementById('skuRetailPrice').value }) });
+  const result = await api(`/products/${productId}/skus`, {
+    method: 'POST',
+    body: JSON.stringify({
+      sku_code: document.getElementById('skuCode').value.trim(),
+      color: document.getElementById('skuColor').value.trim(),
+      size: document.getElementById('skuSize').value.trim(),
+      stock: Number(document.getElementById('skuStock').value),
+    }),
+  });
   if (result.code !== 0) return alert(`添加失败：${result.message}`);
   closeModal('addSkuModal');
   showToast('SKU 添加成功');
   loadProductsAdmin();
 }
 
+async function manageProductImages(productId) {
+  const result = await api(`/products/${productId}`);
+  if (result.code !== 0) return alert(result.message || '读取商品失败');
+  document.getElementById('imageProductId').value = productId;
+  renderImageManager(result.data);
+  openModal('imageManagerModal');
+}
+
+function renderImageManager(product) {
+  const list = document.getElementById('imageManagerList');
+  list.innerHTML = product.images.length ? product.images.map(image => `<div class="image-manager-item"><img src="${escapeHtml(image.image_url)}" alt="商品图片"><div class="image-manager-actions">${image.is_cover ? '<span class="badge badge-delivered">当前封面</span>' : `<button class="btn btn-sm btn-outline" onclick="setCoverImage('${product.id}','${image.id}')">设为封面</button>`}<button class="btn btn-sm btn-danger" onclick="deleteProductImage('${product.id}','${image.id}')">删除</button></div></div>`).join('') : '<div class="empty-state">暂未上传图片</div>';
+}
+
+async function uploadMoreImages(event) {
+  event.preventDefault();
+  const productId = document.getElementById('imageProductId').value;
+  const files = [...document.getElementById('moreImages').files];
+  if (!files.length) return;
+  try {
+    await uploadFiles(productId, files);
+  } catch (error) {
+    return alert(`上传失败：${error.message}`);
+  }
+  document.getElementById('moreImages').value = '';
+  showToast('图片上传成功');
+  await manageProductImages(productId);
+  loadProductsAdmin();
+}
+
+async function setCoverImage(productId, imageId) {
+  const result = await api(`/products/${productId}/images/${imageId}/cover`, { method: 'PATCH', body: JSON.stringify({}) });
+  if (result.code !== 0) return alert(`设置失败：${result.message}`);
+  showToast('封面已更新');
+  await manageProductImages(productId);
+  loadProductsAdmin();
+}
+
+async function deleteProductImage(productId, imageId) {
+  if (!confirm('确认删除这张图片？')) return;
+  const result = await api(`/products/${productId}/images/${imageId}`, { method: 'DELETE' });
+  if (result.code !== 0) return alert(`删除失败：${result.message}`);
+  showToast('图片已删除');
+  await manageProductImages(productId);
+  loadProductsAdmin();
+}
+
+async function showShareMaterial(productId) {
+  const result = await api(`/products/${productId}/share`);
+  if (result.code !== 0) return alert(`生成失败：${result.message}`);
+  currentShareData = result.data;
+  const product = result.data.product;
+  document.getElementById('shareProductSummary').innerHTML = `<div class="share-product-summary">${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="">` : ''}<div><div class="style-code">${escapeHtml(product.style_code)}</div><strong>${escapeHtml(product.name)}</strong><p>${escapeHtml(product.description || '')}</p></div></div>`;
+  document.getElementById('shareQr').src = result.data.qr_url;
+  document.getElementById('shareUrl').value = result.data.url;
+  document.getElementById('shareCopy').value = result.data.copy;
+  openModal('shareModal');
+}
+
+async function copyShareUrl() {
+  await copyText(document.getElementById('shareUrl').value, '链接已复制');
+}
+async function copyShareCopy() {
+  await copyText(document.getElementById('shareCopy').value, '朋友圈文案已复制');
+}
+function downloadQr() {
+  if (!currentShareData) return;
+  window.open(currentShareData.qr_url, '_blank', 'noopener');
+}
+async function copyText(text, successMessage) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast(successMessage);
+  } catch (_) {
+    prompt('复制下面的内容：', text);
+  }
+}
+
 async function loadCustomers() {
   const result = await api('/customers');
   const body = document.getElementById('customersBody');
   if (result.code !== 0) return body.innerHTML = `<tr><td colspan="8" class="form-error">${escapeHtml(result.message)}</td></tr>`;
-  body.innerHTML = result.data.length ? result.data.map(customer => `<tr><td>${escapeHtml(customer.id.slice(0, 8))}</td><td>${escapeHtml(customer.name)}</td><td>${escapeHtml(customer.phone)}</td><td>${escapeHtml(customer.company || '-')}</td><td class="address-cell">${escapeHtml(customer.address || '-')}</td><td><span class="badge ${customer.level === 'vip' ? 'badge-delivered' : 'badge-pending'}">${customer.level === 'vip' ? 'VIP' : '普通'}</span></td><td>${customer.order_count}</td><td class="price">¥${money(customer.total_amount)}</td></tr>`).join('') : '<tr><td colspan="8" class="empty-state">暂无客户</td></tr>';
+  body.innerHTML = result.data.length ? result.data.map(customer => `<tr><td>${escapeHtml(customer.id.slice(0, 8))}</td><td>${escapeHtml(customer.name)}</td><td>${escapeHtml(customer.phone)}</td><td>${escapeHtml(customer.company || '-')}</td><td class="address-cell">${escapeHtml(customer.address || '-')}</td><td>${customer.inquiry_count}</td><td>${customer.order_count}</td><td>${customer.last_inquiry_at ? escapeHtml(formatTime(customer.last_inquiry_at)) : '-'}</td></tr>`).join('') : '<tr><td colspan="8" class="empty-state">暂无客户</td></tr>';
 }
+
 function showAddCustomer() { openModal('addCustomerModal'); }
 async function createCustomer(event) {
   event.preventDefault();
-  const result = await api('/customers', { method: 'POST', body: JSON.stringify({ name: document.getElementById('cName').value.trim(), phone: document.getElementById('cPhone').value.trim(), password: document.getElementById('cPassword').value, company: document.getElementById('cCompany').value.trim(), address: document.getElementById('cAddress').value.trim() }) });
+  const result = await api('/customers', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: document.getElementById('cName').value.trim(),
+      phone: document.getElementById('cPhone').value.trim(),
+      password: document.getElementById('cPassword').value,
+      company: document.getElementById('cCompany').value.trim(),
+      address: document.getElementById('cAddress').value.trim(),
+    }),
+  });
   if (result.code !== 0) return alert(`创建失败：${result.message}`);
   closeModal('addCustomerModal');
   event.target.reset();
@@ -236,18 +449,27 @@ async function createCustomer(event) {
   loadCustomers();
 }
 
-function statusLabels() { return { pending: '待确认', confirmed: '已确认', production: '生产中', shipping: '发货中', delivered: '已送达', cancelled: '已取消' }; }
+function inquiryStatusLabels() { return { pending: '待联系', contacted: '已联系', quoted: '已报价', considering: '客户考虑中', converted: '已成交', lost: '未成交' }; }
+function orderStatusLabels() { return { pending: '待确认', confirmed: '已确认', production: '生产中', shipping: '发货中', delivered: '已送达', cancelled: '已取消' }; }
 function openModal(id) { document.getElementById(id).style.display = 'flex'; }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 function formatTime(iso) { return new Date(iso).toLocaleString('zh-CN', { hour12: false }); }
 function showDataError(id, message) { document.getElementById(id).innerHTML = `<p class="form-error">${escapeHtml(message || '加载失败')}</p>`; }
-function showToast(message) { const toast = document.createElement('div'); toast.className = 'toast-message'; toast.textContent = message; document.body.appendChild(toast); setTimeout(() => toast.remove(), 2000); }
+function showToast(message) { const toast = document.createElement('div'); toast.className = 'toast-message'; toast.textContent = message; document.body.appendChild(toast); setTimeout(() => toast.remove(), 2200); }
 
-document.getElementById('statusFilter').addEventListener('click', event => {
+document.getElementById('inquiryStatusFilter').addEventListener('click', event => {
   if (!event.target.classList.contains('status-btn')) return;
-  document.querySelectorAll('.status-btn').forEach(button => button.classList.remove('active'));
+  document.querySelectorAll('#inquiryStatusFilter .status-btn').forEach(button => button.classList.remove('active'));
   event.target.classList.add('active');
-  currentOrderFilter.status = event.target.dataset.status;
+  currentInquiryFilter = event.target.dataset.status;
+  loadInquiries();
+});
+
+document.getElementById('orderStatusFilter').addEventListener('click', event => {
+  if (!event.target.classList.contains('status-btn')) return;
+  document.querySelectorAll('#orderStatusFilter .status-btn').forEach(button => button.classList.remove('active'));
+  event.target.classList.add('active');
+  currentOrderFilter = event.target.dataset.status;
   loadOrders();
 });
 

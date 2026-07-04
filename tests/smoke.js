@@ -15,14 +15,19 @@ async function run() {
     assert.equal(health.status, 503);
     const healthJson = await health.json();
     assert.equal(healthJson.data.status, 'configuration_required');
+    assert.equal(healthJson.data.version, '3.0.0');
 
     const home = await fetch(`${base}/`);
     assert.equal(home.status, 200);
-    assert.match(await home.text(), /服装批发订货系统/);
+    assert.match(await home.text(), /Eluren 服装电子选款册/);
+
+    const productPage = await fetch(`${base}/product/00000000-0000-4000-8000-000000000000`);
+    assert.equal(productPage.status, 200);
+    assert.match(await productPage.text(), /先选款，再询价/);
 
     const admin = await fetch(`${base}/admin`);
     assert.equal(admin.status, 200);
-    assert.match(await admin.text(), /管理后台登录/);
+    assert.match(await admin.text(), /Eluren 选款册管理后台/);
 
     const products = await fetch(`${base}/api/products`);
     assert.equal(products.status, 503);
