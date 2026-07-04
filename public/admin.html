@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>服装批发订货系统 - 管理后台</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body class="admin-page">
+  <!-- 侧边栏 -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <span class="logo-icon">📦</span>
+      <span>批发管理系统</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a class="nav-item active" data-view="dashboard" onclick="switchView('dashboard')">📊 仪表盘</a>
+      <a class="nav-item" data-view="orders" onclick="switchView('orders')">📋 订单管理</a>
+      <a class="nav-item" data-view="products" onclick="switchView('products')">👕 商品管理</a>
+      <a class="nav-item" data-view="customers" onclick="switchView('customers')">👥 客户管理</a>
+    </nav>
+    <div class="sidebar-footer">
+      <a href="/" class="back-link">← 返回前台</a>
+    </div>
+  </aside>
+
+  <!-- 主内容区 -->
+  <main class="admin-main">
+    <!-- 仪表盘视图 -->
+    <div class="view active" id="view-dashboard">
+      <div class="page-header">
+        <h1>📊 仪表盘</h1>
+        <button class="btn btn-sm btn-outline" onclick="loadDashboard()">刷新</button>
+      </div>
+      <div class="stats-grid" id="statsGrid"></div>
+      <div class="dashboard-sections">
+        <div class="dashboard-card">
+          <h3>📦 低库存预警</h3>
+          <div id="lowStockList" class="low-stock-list"></div>
+        </div>
+        <div class="dashboard-card">
+          <h3>📋 最近订单</h3>
+          <div id="recentOrders"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 订单管理视图 -->
+    <div class="view" id="view-orders">
+      <div class="page-header">
+        <h1>📋 订单管理</h1>
+        <button class="btn btn-sm btn-outline" onclick="loadOrders()">刷新</button>
+      </div>
+      <div class="filter-bar admin-filter">
+        <div class="status-filter" id="statusFilter">
+          <button class="status-btn active" data-status="">全部</button>
+          <button class="status-btn" data-status="pending">待确认</button>
+          <button class="status-btn" data-status="confirmed">已确认</button>
+          <button class="status-btn" data-status="production">生产中</button>
+          <button class="status-btn" data-status="shipping">发货中</button>
+          <button class="status-btn" data-status="delivered">已送达</button>
+          <button class="status-btn" data-status="cancelled">已取消</button>
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table class="data-table" id="ordersTable">
+          <thead>
+            <tr>
+              <th>订单号</th>
+              <th>客户</th>
+              <th>件数</th>
+              <th>金额</th>
+              <th>状态</th>
+              <th>下单时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="ordersBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 商品管理视图 -->
+    <div class="view" id="view-products">
+      <div class="page-header">
+        <h1>👕 商品管理</h1>
+        <button class="btn btn-sm btn-primary" onclick="showAddProduct()">+ 新增商品</button>
+      </div>
+      <div class="product-admin-grid" id="productAdminGrid"></div>
+    </div>
+
+    <!-- 客户管理视图 -->
+    <div class="view" id="view-customers">
+      <div class="page-header">
+        <h1>👥 客户管理</h1>
+        <button class="btn btn-sm btn-primary" onclick="showAddCustomer()">+ 新增客户</button>
+      </div>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>客户ID</th>
+              <th>名称</th>
+              <th>电话</th>
+              <th>公司/店铺</th>
+              <th>地址</th>
+              <th>等级</th>
+              <th>订单数</th>
+              <th>累计金额</th>
+            </tr>
+          </thead>
+          <tbody id="customersBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <!-- 订单详情弹窗 -->
+  <div class="modal-overlay" id="orderDetailModal" style="display:none">
+    <div class="modal order-detail-modal">
+      <button class="modal-close" onclick="closeModal('orderDetailModal')">✕</button>
+      <div id="orderDetailContent"></div>
+    </div>
+  </div>
+
+  <!-- 新增商品弹窗 -->
+  <div class="modal-overlay" id="addProductModal" style="display:none">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal('addProductModal')">✕</button>
+      <h2>➕ 新增商品</h2>
+      <form onsubmit="createProduct(event)">
+        <div class="form-group">
+          <label>商品名称 *</label>
+          <input type="text" id="pName" required>
+        </div>
+        <div class="form-group">
+          <label>分类 *</label>
+          <select id="pCategory" required>
+            <option value="上衣">上衣</option>
+            <option value="裤子">裤子</option>
+            <option value="连衣裙">连衣裙</option>
+            <option value="外套">外套</option>
+            <option value="套装">套装</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>商品描述</label>
+          <textarea id="pDesc" rows="2"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">创建</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 新增客户弹窗 -->
+  <div class="modal-overlay" id="addCustomerModal" style="display:none">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal('addCustomerModal')">✕</button>
+      <h2>➕ 新增客户</h2>
+      <form onsubmit="createCustomer(event)">
+        <div class="form-group">
+          <label>客户名称 *</label>
+          <input type="text" id="cName" required>
+        </div>
+        <div class="form-group">
+          <label>联系电话 *</label>
+          <input type="text" id="cPhone" required>
+        </div>
+        <div class="form-group">
+          <label>公司/店铺</label>
+          <input type="text" id="cCompany">
+        </div>
+        <div class="form-group">
+          <label>收货地址</label>
+          <textarea id="cAddress" rows="2"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">创建</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 添加SKU弹窗 -->
+  <div class="modal-overlay" id="addSkuModal" style="display:none">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal('addSkuModal')">✕</button>
+      <h2>➕ 添加SKU</h2>
+      <form onsubmit="addSku(event)">
+        <input type="hidden" id="skuProductId">
+        <div class="form-group">
+          <label>颜色 *</label>
+          <input type="text" id="skuColor" required placeholder="如：白色、黑色">
+        </div>
+        <div class="form-group">
+          <label>尺码 *</label>
+          <input type="text" id="skuSize" required placeholder="如：S/M/L/XL">
+        </div>
+        <div class="form-group">
+          <label>库存数量</label>
+          <input type="number" id="skuStock" value="0" min="0">
+        </div>
+        <div class="form-group">
+          <label>批发价（元）*</label>
+          <input type="number" id="skuWholesalePrice" required step="0.01" min="0">
+        </div>
+        <div class="form-group">
+          <label>零售价（元）</label>
+          <input type="number" id="skuRetailPrice" step="0.01" min="0">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">添加</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="/assets/admin.js"></script>
+</body>
+</html>

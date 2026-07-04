@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>服装批发订货系统 - 选货下单</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body class="customer-page">
+  <!-- 顶部导航 -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">📦</span>
+        <span class="logo-text">服装批发订货平台</span>
+      </div>
+      <div class="cart-badge" id="cartBadge" onclick="openCart()">
+        <span>🛒</span>
+        <span class="badge-count" id="cartCount">0</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- 搜索和筛选 -->
+  <div class="filter-bar">
+    <input type="text" id="searchInput" placeholder="搜索商品名称..." class="search-input">
+    <div class="category-tabs" id="categoryTabs">
+      <button class="cat-btn active" data-cat="">全部</button>
+      <button class="cat-btn" data-cat="上衣">上衣</button>
+      <button class="cat-btn" data-cat="裤子">裤子</button>
+      <button class="cat-btn" data-cat="连衣裙">连衣裙</button>
+      <button class="cat-btn" data-cat="外套">外套</button>
+      <button class="cat-btn" data-cat="套装">套装</button>
+    </div>
+  </div>
+
+  <!-- 商品列表 -->
+  <main class="product-grid" id="productGrid">
+    <div class="loading">加载商品中...</div>
+  </main>
+
+  <!-- 商品详情弹窗 -->
+  <div class="modal-overlay" id="productModal" style="display:none">
+    <div class="modal product-modal">
+      <button class="modal-close" onclick="closeModal('productModal')">✕</button>
+      <div id="productDetail"></div>
+    </div>
+  </div>
+
+  <!-- 购物车弹窗 -->
+  <div class="modal-overlay" id="cartModal" style="display:none">
+    <div class="modal cart-modal">
+      <button class="modal-close" onclick="closeModal('cartModal')">✕</button>
+      <h2>🛒 订货清单</h2>
+      <div id="cartItems"></div>
+      <div class="cart-summary">
+        <div class="cart-total">
+          <span>合计件数: <strong id="cartTotalQty">0</strong> 件</span>
+          <span>合计金额: <strong class="price" id="cartTotalAmount">¥0.00</strong></span>
+        </div>
+      </div>
+      <div class="cart-actions">
+        <button class="btn btn-secondary" onclick="clearCart()">清空</button>
+        <button class="btn btn-primary" onclick="showCheckout()">去下单</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 下单弹窗 -->
+  <div class="modal-overlay" id="checkoutModal" style="display:none">
+    <div class="modal checkout-modal">
+      <button class="modal-close" onclick="closeModal('checkoutModal')">✕</button>
+      <h2>📝 确认订单</h2>
+      <form id="checkoutForm" onsubmit="submitOrder(event)">
+        <div class="form-group">
+          <label>选择客户 *</label>
+          <select id="customerSelect" required onchange="fillCustomerInfo()">
+            <option value="">请选择客户</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>客户名称</label>
+          <input type="text" id="customerName" readonly>
+        </div>
+        <div class="form-group">
+          <label>联系电话</label>
+          <input type="text" id="customerPhone" readonly>
+        </div>
+        <div class="form-group">
+          <label>收货地址 *</label>
+          <textarea id="shippingAddress" required rows="2"></textarea>
+        </div>
+        <div class="form-group">
+          <label>订单备注</label>
+          <textarea id="remark" rows="2" placeholder="特殊要求、交期说明等"></textarea>
+        </div>
+        <div id="checkoutItems" class="checkout-items"></div>
+        <div class="checkout-total">
+          <span>应付总额: <strong class="price" id="checkoutTotal">¥0.00</strong></span>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">提交订单</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 订单成功弹窗 -->
+  <div class="modal-overlay" id="successModal" style="display:none">
+    <div class="modal success-modal">
+      <div class="success-icon">✅</div>
+      <h2>订单提交成功！</h2>
+      <p id="successOrderNo"></p>
+      <p class="success-amount" id="successAmount"></p>
+      <button class="btn btn-primary btn-block" onclick="closeModal('successModal');clearCart();loadProducts()">继续选货</button>
+    </div>
+  </div>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>
