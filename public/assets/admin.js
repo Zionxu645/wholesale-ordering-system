@@ -8,6 +8,8 @@ let currentInquiryFilter = '';
 let currentOrderFilter = '';
 let productsCache = [];
 let currentShareData = null;
+let currentShareTemplate = 'short';
+let imageManagerProduct = null;
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -245,19 +247,37 @@ async function loadProductsAdmin() {
   const result = await api('/products?status=all');
   const grid = document.getElementById('productAdminGrid');
   if (result.code !== 0) return grid.innerHTML = `<p class="form-error">${escapeHtml(result.message)}</p>`;
-  productsCache = result.data;
-  grid.innerHTML = result.data.length ? result.data.map(product => {
+  productsCache = result.data || [];
+  renderProductsAdmin(productsCache);
+}
+
+function filterProductsAdmin() {
+  const keyword = (document.getElementById('adminProductSearch')?.value || '').trim().toLowerCase();
+  const filtered = !keyword ? productsCache : productsCache.filter(product => [
+    product.name, product.style_code, product.material, product.badge_text, product.description,
+  ].some(value => String(value || '').toLowerCase().includes(keyword)));
+  renderProductsAdmin(filtered);
+}
+
+function renderProductsAdmin(productList) {
+  const grid = document.getElementById('productAdminGrid');
+  const count = document.getElementById('adminProductCount');
+  if (count) count.textContent = `共 ${productList.length} 款`;
+  grid.innerHTML = productList.length ? productList.map(product => {
     const cover = product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}">` : '<div class="admin-product-placeholder">👕</div>';
+    const meta = [product.category, product.material, product.badge_text].filter(Boolean).map(escapeHtml).join(' · ');
+    const skuContent = product.skus.length ? product.skus.map(sku => `<div class="sku-row"><span>${escapeHtml(sku.color)} / ${escapeHtml(sku.size)}（${escapeHtml(sku.sku_code)}）</span><span><span class="${sku.stock < 20 ? 'danger-text' : 'muted-text'} sku-stock">库存 ${sku.stock}件</span> <button class="btn btn-sm btn-outline" onclick="showEditSku('${sku.id}')">编辑规格</button></span></div>`).join('') : '<div class="empty-state">暂无 SKU</div>';
     return `<article class="product-admin-card">
-      <div class="admin-product-cover">${cover}<span class="badge ${product.status === 'on_sale' ? 'badge-delivered' : 'badge-cancelled'}">${product.status === 'on_sale' ? '在售' : '已下架'}</span></div>
+      <div class="admin-product-cover">${cover}<div class="admin-cover-badges"><span class="badge ${product.status === 'on_sale' ? 'badge-delivered' : 'badge-cancelled'}">${product.status === 'on_sale' ? '在售' : '已下架'}</span>${product.badge_text ? `<span class="badge badge-new">${escapeHtml(product.badge_text)}</span>` : ''}</div></div>
       <div class="product-admin-content">
-        <div class="product-admin-header"><div><div class="style-code">${escapeHtml(product.style_code)}</div><div class="product-admin-title">${escapeHtml(product.name)}</div><div class="product-admin-cat">${escapeHtml(product.category)} · ${product.images.length}张图片</div></div></div>
+        <div class="product-admin-header"><div><div class="style-code">${escapeHtml(product.style_code)}</div><div class="product-admin-title">${escapeHtml(product.name)}</div><div class="product-admin-cat">${meta || '未填写商品资料'} · ${product.images.length}张图片</div></div></div>
         ${product.description ? `<div class="muted-text product-description">${escapeHtml(product.description)}</div>` : ''}
-        <div class="product-admin-actions"><button class="btn btn-sm btn-outline" onclick="showEditProduct('${product.id}')">编辑商品</button><button class="btn btn-sm btn-outline" onclick="toggleProductStatus('${product.id}','${product.status}')">${product.status === 'on_sale' ? '下架' : '上架'}</button><button class="btn btn-sm btn-outline" onclick="manageProductImages('${product.id}')">图片管理</button><button class="btn btn-sm btn-outline" onclick="showShareMaterial('${product.id}')">朋友圈素材</button><button class="btn btn-sm btn-primary" onclick="showAddSku('${product.id}')">+ SKU</button></div>
-        <div class="sku-list">${product.skus.length ? product.skus.map(sku => `<div class="sku-row"><span>${escapeHtml(sku.color)} / ${escapeHtml(sku.size)}（${escapeHtml(sku.sku_code)}）</span><span><span class="${sku.stock < 20 ? 'danger-text' : 'muted-text'} sku-stock">库存 ${sku.stock}件</span> <button class="btn btn-sm btn-outline" onclick="showEditSku('${sku.id}')">编辑规格</button></span></div>`).join('') : '<div class="empty-state">暂无 SKU</div>'}</div>
+        ${product.customer_note ? `<div class="customer-note-admin">客户说明：${escapeHtml(product.customer_note)}</div>` : ''}
+        <div class="product-admin-actions"><button class="btn btn-sm btn-outline" onclick="showEditProduct('${product.id}')">编辑商品</button><button class="btn btn-sm btn-outline" onclick="toggleProductStatus('${product.id}','${product.status}')">${product.status === 'on_sale' ? '下架' : '上架'}</button><button class="btn btn-sm btn-outline" onclick="manageProductImages('${product.id}')">图片管理</button><button class="btn btn-sm btn-outline" onclick="showShareMaterial('${product.id}')">朋友圈素材</button><button class="btn btn-sm btn-primary" onclick="showBatchSku('${product.id}')">批量规格</button><button class="btn btn-sm btn-primary" onclick="showAddSku('${product.id}')">+ 单个SKU</button></div>
+        <details class="sku-details" ${product.skus.length <= 4 ? 'open' : ''}><summary>颜色/尺码规格（${product.skus.length} 个）</summary><div class="sku-list">${skuContent}</div></details>
       </div>
     </article>`;
-  }).join('') : '<p class="empty-state">暂无商品，请先新增商品</p>';
+  }).join('') : '<p class="empty-state">没有匹配的商品</p>';
 }
 
 async function toggleProductStatus(productId, currentStatus) {
@@ -288,16 +308,18 @@ function showEditProduct(productId) {
   document.getElementById('epName').value = product.name || '';
   document.getElementById('epStyleCode').value = product.style_code || '';
   document.getElementById('epCategory').value = product.category || '上衣';
+  document.getElementById('epMaterial').value = product.material || '';
+  document.getElementById('epBadgeText').value = product.badge_text || '';
   document.getElementById('epDesc').value = product.description || '';
+  document.getElementById('epCustomerNote').value = product.customer_note || '';
   openModal('editProductModal');
 }
 
 async function updateProduct(event) {
   event.preventDefault();
   const productId = document.getElementById('editProductId').value;
-  const button = event.submitter;
-  button.disabled = true;
-  button.textContent = '保存中...';
+  const button = event.submitter || event.target.querySelector('button[type="submit"]');
+  if (button) { button.disabled = true; button.textContent = '保存中...'; }
   try {
     const result = await api(`/products/${productId}`, {
       method: 'PATCH',
@@ -305,17 +327,33 @@ async function updateProduct(event) {
         name: document.getElementById('epName').value.trim(),
         style_code: document.getElementById('epStyleCode').value.trim(),
         category: document.getElementById('epCategory').value,
+        material: document.getElementById('epMaterial').value.trim(),
+        badge_text: document.getElementById('epBadgeText').value.trim(),
         description: document.getElementById('epDesc').value.trim(),
+        customer_note: document.getElementById('epCustomerNote').value.trim(),
       }),
     });
     if (result.code !== 0) return alert(`保存失败：${result.message}`);
     closeModal('editProductModal');
-    showToast('商品信息已更新');
+    showToast('商品资料已更新');
     await loadProductsAdmin();
+  } catch (error) {
+    alert(`保存失败：${error.message}`);
   } finally {
-    button.disabled = false;
-    button.textContent = '保存修改';
+    if (button) { button.disabled = false; button.textContent = '保存修改'; }
   }
+}
+
+async function deleteCurrentProduct() {
+  const productId = document.getElementById('editProductId').value;
+  const product = findProduct(productId);
+  if (!product) return;
+  if (!confirm(`确认永久删除“${product.name}”？\n\n仅没有历史询价或订单引用的商品可以删除。`)) return;
+  const result = await api(`/products/${productId}`, { method: 'DELETE' });
+  if (result.code !== 0) return alert(`删除失败：${result.message}`);
+  closeModal('editProductModal');
+  showToast('商品已删除');
+  await loadProductsAdmin();
 }
 
 function showEditSku(skuId) {
@@ -349,6 +387,18 @@ async function updateSku(event) {
   await Promise.all([loadProductsAdmin(), loadDashboard()]);
 }
 
+async function deleteCurrentSku() {
+  const skuId = document.getElementById('editSkuId').value;
+  const found = findSku(skuId);
+  if (!found) return;
+  if (!confirm(`确认删除规格：${found.sku.color} / ${found.sku.size}？`)) return;
+  const result = await api(`/skus/${skuId}`, { method: 'DELETE' });
+  if (result.code !== 0) return alert(`删除失败：${result.message}`);
+  closeModal('editSkuModal');
+  showToast('规格已删除');
+  await Promise.all([loadProductsAdmin(), loadDashboard()]);
+}
+
 function showAddProduct() {
   document.getElementById('addProductForm').reset();
   openModal('addProductModal');
@@ -356,9 +406,8 @@ function showAddProduct() {
 
 async function createProduct(event) {
   event.preventDefault();
-  const button = event.submitter;
-  button.disabled = true;
-  button.textContent = '创建中...';
+  const button = event.submitter || event.target.querySelector('button[type="submit"]');
+  if (button) { button.disabled = true; button.textContent = '创建中...'; }
   try {
     const result = await api('/products', {
       method: 'POST',
@@ -366,25 +415,63 @@ async function createProduct(event) {
         name: document.getElementById('pName').value.trim(),
         style_code: document.getElementById('pStyleCode').value.trim(),
         category: document.getElementById('pCategory').value,
+        material: document.getElementById('pMaterial').value.trim(),
+        badge_text: document.getElementById('pBadgeText').value.trim(),
         description: document.getElementById('pDesc').value.trim(),
+        customer_note: document.getElementById('pCustomerNote').value.trim(),
       }),
     });
     if (result.code !== 0) return alert(`创建失败：${result.message}`);
     const files = [...document.getElementById('pImages').files];
     if (files.length) {
-      try {
-        await uploadFiles(result.data.id, files);
-      } catch (error) {
-        alert(`商品已创建，但部分图片上传失败：${error.message}`);
-      }
+      try { await uploadFiles(result.data.id, files); }
+      catch (error) { alert(`商品已创建，但部分图片上传失败：${error.message}`); }
     }
     closeModal('addProductModal');
     showToast('商品创建成功');
     loadProductsAdmin();
+  } catch (error) {
+    alert(`创建失败：${error.message}`);
   } finally {
-    button.disabled = false;
-    button.textContent = '创建商品';
+    if (button) { button.disabled = false; button.textContent = '创建商品'; }
   }
+}
+
+function splitList(value) {
+  return [...new Set(String(value || '').split(/[，,、;；\n\r\t]+/).map(item => item.trim()).filter(Boolean))];
+}
+
+function showBatchSku(productId) {
+  const product = findProduct(productId);
+  if (!product) return alert('未找到商品');
+  document.getElementById('batchSkuProductId').value = productId;
+  document.getElementById('batchSkuProductName').textContent = `${product.name} · ${product.style_code}`;
+  document.getElementById('batchSkuColors').value = [...new Set(product.skus.map(sku => sku.color))].join('、');
+  document.getElementById('batchSkuSizes').value = [...new Set(product.skus.map(sku => sku.size))].join('、');
+  document.getElementById('batchSkuStock').value = '100';
+  document.getElementById('batchSkuUpdateExisting').checked = false;
+  openModal('batchSkuModal');
+}
+
+async function batchAddSkus(event) {
+  event.preventDefault();
+  const productId = document.getElementById('batchSkuProductId').value;
+  const colors = splitList(document.getElementById('batchSkuColors').value);
+  const sizes = splitList(document.getElementById('batchSkuSizes').value);
+  if (!colors.length || !sizes.length) return alert('请填写颜色和尺码');
+  if (!confirm(`将处理 ${colors.length} 个颜色 × ${sizes.length} 个尺码，共 ${colors.length * sizes.length} 个组合。确认继续？`)) return;
+  const result = await api(`/products/${productId}/skus/batch`, {
+    method: 'POST',
+    body: JSON.stringify({
+      colors, sizes,
+      stock: Number(document.getElementById('batchSkuStock').value),
+      update_existing: document.getElementById('batchSkuUpdateExisting').checked,
+    }),
+  });
+  if (result.code !== 0) return alert(`批量处理失败：${result.message}`);
+  closeModal('batchSkuModal');
+  showToast(result.message || '批量规格已处理');
+  await Promise.all([loadProductsAdmin(), loadDashboard()]);
 }
 
 function showAddSku(productId) {
@@ -418,13 +505,28 @@ async function manageProductImages(productId) {
   const result = await api(`/products/${productId}`);
   if (result.code !== 0) return alert(result.message || '读取商品失败');
   document.getElementById('imageProductId').value = productId;
+  imageManagerProduct = result.data;
   renderImageManager(result.data);
   openModal('imageManagerModal');
 }
 
 function renderImageManager(product) {
   const list = document.getElementById('imageManagerList');
-  list.innerHTML = product.images.length ? product.images.map(image => `<div class="image-manager-item"><img src="${escapeHtml(image.image_url)}" alt="商品图片"><div class="image-manager-actions">${image.is_cover ? '<span class="badge badge-delivered">当前封面</span>' : `<button class="btn btn-sm btn-outline" onclick="setCoverImage('${product.id}','${image.id}')">设为封面</button>`}<button class="btn btn-sm btn-danger" onclick="deleteProductImage('${product.id}','${image.id}')">删除</button></div></div>`).join('') : '<div class="empty-state">暂未上传图片</div>';
+  list.innerHTML = product.images.length ? product.images.map((image, index) => `<div class="image-manager-item"><img src="${escapeHtml(image.image_url)}" alt="商品图片"><div class="image-order-label">第 ${index + 1} 张</div><div class="image-manager-actions"><button class="btn btn-sm btn-outline" ${index === 0 ? 'disabled' : ''} onclick="moveProductImage('${product.id}','${image.id}',-1)">前移</button><button class="btn btn-sm btn-outline" ${index === product.images.length - 1 ? 'disabled' : ''} onclick="moveProductImage('${product.id}','${image.id}',1)">后移</button>${image.is_cover ? '<span class="badge badge-delivered">当前封面</span>' : `<button class="btn btn-sm btn-outline" onclick="setCoverImage('${product.id}','${image.id}')">设为封面</button>`}<button class="btn btn-sm btn-danger" onclick="deleteProductImage('${product.id}','${image.id}')">删除</button></div></div>`).join('') : '<div class="empty-state">暂未上传图片</div>';
+}
+
+async function moveProductImage(productId, imageId, direction) {
+  if (!imageManagerProduct || imageManagerProduct.id !== productId) return;
+  const images = [...imageManagerProduct.images];
+  const index = images.findIndex(image => image.id === imageId);
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= images.length) return;
+  [images[index], images[target]] = [images[target], images[index]];
+  const result = await api(`/products/${productId}/images/reorder`, { method: 'PATCH', body: JSON.stringify({ image_ids: images.map(image => image.id) }) });
+  if (result.code !== 0) return alert(`排序失败：${result.message}`);
+  showToast('图片顺序已更新');
+  await manageProductImages(productId);
+  loadProductsAdmin();
 }
 
 async function uploadMoreImages(event) {
@@ -432,11 +534,8 @@ async function uploadMoreImages(event) {
   const productId = document.getElementById('imageProductId').value;
   const files = [...document.getElementById('moreImages').files];
   if (!files.length) return;
-  try {
-    await uploadFiles(productId, files);
-  } catch (error) {
-    return alert(`上传失败：${error.message}`);
-  }
+  try { await uploadFiles(productId, files); }
+  catch (error) { return alert(`上传失败：${error.message}`); }
   document.getElementById('moreImages').value = '';
   showToast('图片上传成功');
   await manageProductImages(productId);
@@ -464,31 +563,30 @@ async function showShareMaterial(productId) {
   const result = await api(`/products/${productId}/share`);
   if (result.code !== 0) return alert(`生成失败：${result.message}`);
   currentShareData = result.data;
+  currentShareTemplate = 'short';
   const product = result.data.product;
-  document.getElementById('shareProductSummary').innerHTML = `<div class="share-product-summary">${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="">` : ''}<div><div class="style-code">${escapeHtml(product.style_code)}</div><strong>${escapeHtml(product.name)}</strong><p>${escapeHtml(product.description || '')}</p></div></div>`;
+  const meta = [product.material, product.badge_text].filter(Boolean).join(' · ');
+  document.getElementById('shareProductSummary').innerHTML = `<div class="share-product-summary">${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="">` : ''}<div><div class="style-code">${escapeHtml(product.style_code)}</div><strong>${escapeHtml(product.name)}</strong>${meta ? `<p>${escapeHtml(meta)}</p>` : ''}<p>${escapeHtml(product.description || '')}</p></div></div>`;
   document.getElementById('shareQr').src = result.data.qr_url;
   document.getElementById('shareUrl').value = result.data.url;
-  document.getElementById('shareCopy').value = result.data.copy;
+  selectShareTemplate('short');
   openModal('shareModal');
 }
 
-async function copyShareUrl() {
-  await copyText(document.getElementById('shareUrl').value, '链接已复制');
-}
-async function copyShareCopy() {
-  await copyText(document.getElementById('shareCopy').value, '朋友圈文案已复制');
-}
-function downloadQr() {
+function selectShareTemplate(type) {
   if (!currentShareData) return;
-  window.open(currentShareData.qr_url, '_blank', 'noopener');
+  currentShareTemplate = type === 'detail' ? 'detail' : 'short';
+  document.getElementById('shareCopy').value = currentShareTemplate === 'detail' ? currentShareData.copy_detail : currentShareData.copy_short;
+  document.getElementById('shareShortBtn').className = `btn btn-sm ${currentShareTemplate === 'short' ? 'btn-primary' : 'btn-outline'}`;
+  document.getElementById('shareDetailBtn').className = `btn btn-sm ${currentShareTemplate === 'detail' ? 'btn-primary' : 'btn-outline'}`;
 }
+
+async function copyShareUrl() { await copyText(document.getElementById('shareUrl').value, '链接已复制'); }
+async function copyShareCopy() { await copyText(document.getElementById('shareCopy').value, '朋友圈文案已复制'); }
+function downloadQr() { if (currentShareData) window.open(currentShareData.qr_url, '_blank', 'noopener'); }
 async function copyText(text, successMessage) {
-  try {
-    await navigator.clipboard.writeText(text);
-    showToast(successMessage);
-  } catch (_) {
-    prompt('复制下面的内容：', text);
-  }
+  try { await navigator.clipboard.writeText(text); showToast(successMessage); }
+  catch (_) { prompt('复制下面的内容：', text); }
 }
 
 async function loadCustomers() {

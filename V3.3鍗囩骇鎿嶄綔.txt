@@ -1,0 +1,23 @@
+Eluren V3.3 升级顺序
+
+一、先升级 Supabase 数据库
+1. 打开 Supabase -> SQL Editor -> New query。
+2. 打开 migration-v3.3-product-operations.sql，复制全部内容并运行。
+3. 弹出安全提示时选择 Run without RLS。
+4. 确认显示 Success. No rows returned。
+
+二、再上传项目代码
+1. GitHub Desktop -> Repository -> Show in Explorer。
+2. 仓库内保留 .git，其他内容替换为本项目文件。
+3. 不复制 .env，不复制 node_modules。
+4. Commit：Upgrade product operations to V3.3。
+5. Push origin，等待 Render 显示 Deploy live。
+
+三、部署后验证
+1. 后台商品管理点击“编辑商品”，修改名称、款号、分类、面料、标签、描述和客户说明。
+2. 点击“批量规格”，测试颜色 × 尺码批量生成。
+3. 点击任一“编辑规格”，验证颜色、尺码、库存和删除功能。
+4. 图片管理中测试前移、后移与设为封面。
+5. 朋友圈素材中切换简洁版和详细版。
+
+注意：必须先执行 V3.3 数据库脚本，再部署代码；否则商品列表会因为数据库缺少新字段而加载失败。

@@ -188,11 +188,13 @@ function renderProducts() {
     const image = product.image_url
       ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" loading="lazy">`
       : `<span class="product-placeholder">${placeholderFor(product.category)}</span>`;
+    const meta = [product.material, product.badge_text].filter(Boolean).join(' · ');
     return `<article class="product-card" onclick="showProductDetail('${product.id}')">
-      <div class="product-card-image">${image}<span class="supply-pill supply-${product.availability.code}">${escapeHtml(product.availability.label)}</span></div>
+      <div class="product-card-image">${image}<span class="supply-pill supply-${product.availability.code}">${escapeHtml(product.availability.label)}</span>${product.badge_text ? `<span class="product-new-pill">${escapeHtml(product.badge_text)}</span>` : ''}</div>
       <div class="product-card-info">
         <div class="style-code">${escapeHtml(product.style_code || '')}</div>
         <div class="product-card-name">${escapeHtml(product.name)}</div>
+        ${meta ? `<div class="product-card-meta">${escapeHtml(meta)}</div>` : ''}
         <div class="product-card-desc">${escapeHtml(product.description || '点击查看款式详情')}</div>
         <div class="product-card-footer"><span>${colors} 种颜色 · ${sizes} 个尺码</span><strong>查看款式 →</strong></div>
       </div>
@@ -219,7 +221,9 @@ async function showProductDetail(id, updateHistory = true) {
     ${gallery}
     <div class="product-detail-header">
       <div class="product-detail-top"><div><div class="style-code">款号：${escapeHtml(product.style_code)}</div><div class="product-detail-name">${escapeHtml(product.name)}</div></div><button class="btn btn-sm btn-outline" onclick="copyProductLink('${product.id}')">复制分享链接</button></div>
+      <div class="product-meta-chips">${product.material ? `<span>面料：${escapeHtml(product.material)}</span>` : ''}${product.badge_text ? `<span>${escapeHtml(product.badge_text)}</span>` : ''}</div>
       <div class="product-detail-desc">${escapeHtml(product.description || '')}</div>
+      ${product.customer_note ? `<div class="customer-note">${escapeHtml(product.customer_note)}</div>` : ''}
       <div class="no-price-note">价格与精确库存不公开，提交选款后联系确认。</div>
     </div>
     <h3>选择颜色、尺码与数量</h3>

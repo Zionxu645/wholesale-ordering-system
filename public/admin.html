@@ -70,7 +70,11 @@
     </div>
 
     <div class="view" id="view-products">
-      <div class="page-header"><div><h1>👕 商品管理</h1><p>上传图片、编辑商品与颜色尺码、维护库存，一键生成朋友圈文案与分享链接。</p></div><button class="btn btn-sm btn-primary" onclick="showAddProduct()">+ 新增商品</button></div>
+      <div class="page-header"><div><h1>👕 商品管理</h1><p>维护商品资料、图片、颜色尺码和库存，一键生成适合朋友圈的发布文案。</p></div><button class="btn btn-sm btn-primary" onclick="showAddProduct()">+ 新增商品</button></div>
+      <div class="product-toolbar">
+        <input id="adminProductSearch" placeholder="搜索商品名称、款号、面料或卖点" oninput="filterProductsAdmin()">
+        <span id="adminProductCount" class="muted-text"></span>
+      </div>
       <div class="product-admin-grid" id="productAdminGrid"></div>
     </div>
 
@@ -106,7 +110,12 @@
           <div class="form-group"><label>款号</label><input id="pStyleCode" maxlength="80" placeholder="留空自动生成"></div>
         </div>
         <div class="form-group"><label>分类 *</label><select id="pCategory" required><option value="上衣">上衣</option><option value="裤子">裤子</option><option value="连衣裙">连衣裙</option><option value="外套">外套</option><option value="套装">套装</option></select></div>
-        <div class="form-group"><label>商品描述/卖点</label><textarea id="pDesc" rows="3" maxlength="1000" placeholder="例如：面料不易起球、不易掉色，走线紧密"></textarea></div>
+        <div class="form-row">
+          <div class="form-group"><label>面料/材质</label><input id="pMaterial" maxlength="120" placeholder="例如：索罗娜凉感极品棉"></div>
+          <div class="form-group"><label>上新标签</label><input id="pBadgeText" maxlength="30" placeholder="例如：NEW、现货、补货"></div>
+        </div>
+        <div class="form-group"><label>商品描述/卖点</label><textarea id="pDesc" rows="3" maxlength="1000" placeholder="例如：凉感透气，男女同款，宽松版型"></textarea></div>
+        <div class="form-group"><label>客户可见说明</label><textarea id="pCustomerNote" rows="2" maxlength="300" placeholder="例如：图片颜色可能因屏幕略有差异，具体库存请询价确认"></textarea></div>
         <div class="form-group"><label>商品图片（最多10张，单张不超过8MB）</label><input id="pImages" type="file" accept="image/jpeg,image/png,image/webp" multiple><small>第一张会自动作为封面，之后可在商品管理中调整。</small></div>
         <button type="submit" class="btn btn-primary btn-block">创建商品</button>
       </form>
@@ -122,9 +131,29 @@
           <div class="form-group"><label>款号 *</label><input id="epStyleCode" required maxlength="80"></div>
         </div>
         <div class="form-group"><label>分类 *</label><select id="epCategory" required><option value="上衣">上衣</option><option value="裤子">裤子</option><option value="连衣裙">连衣裙</option><option value="外套">外套</option><option value="套装">套装</option></select></div>
+        <div class="form-row">
+          <div class="form-group"><label>面料/材质</label><input id="epMaterial" maxlength="120" placeholder="例如：索罗娜凉感极品棉"></div>
+          <div class="form-group"><label>上新标签</label><input id="epBadgeText" maxlength="30" placeholder="例如：NEW、现货、补货"></div>
+        </div>
         <div class="form-group"><label>商品描述/卖点</label><textarea id="epDesc" rows="4" maxlength="1000"></textarea></div>
-        <small class="form-note">修改后会立即同步到客户选款册和朋友圈素材，历史询价与订单中的商品快照不会被改写。</small>
-        <button type="submit" class="btn btn-primary btn-block">保存修改</button>
+        <div class="form-group"><label>客户可见说明</label><textarea id="epCustomerNote" rows="2" maxlength="300"></textarea></div>
+        <small class="form-note">修改后立即同步到客户选款册和朋友圈素材；历史询价、订单及生产单保留提交时的快照。</small>
+        <div class="modal-action-row"><button type="button" class="btn btn-danger" onclick="deleteCurrentProduct()">删除商品</button><button type="submit" class="btn btn-primary">保存修改</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="batchSkuModal" style="display:none">
+    <div class="modal"><button class="modal-close" onclick="closeModal('batchSkuModal')">✕</button><h2>🧩 批量添加颜色/尺码</h2>
+      <p id="batchSkuProductName" class="modal-intro"></p>
+      <form onsubmit="batchAddSkus(event)">
+        <input type="hidden" id="batchSkuProductId">
+        <div class="form-group"><label>颜色（逗号或换行分隔）*</label><textarea id="batchSkuColors" rows="2" required placeholder="黑色、白色、浅灰"></textarea></div>
+        <div class="form-group"><label>尺码（逗号或换行分隔）*</label><textarea id="batchSkuSizes" rows="2" required placeholder="XL、2XL、3XL、4XL"></textarea></div>
+        <div class="form-group"><label>统一库存 *</label><input type="number" id="batchSkuStock" value="100" min="0" required></div>
+        <label class="check-row"><input type="checkbox" id="batchSkuUpdateExisting"> 同时把已存在的相同颜色/尺码库存更新为上述数量</label>
+        <small class="form-note">系统只创建缺失组合。例如 3 个颜色 × 4 个尺码，将一次处理 12 个规格。</small>
+        <button type="submit" class="btn btn-primary btn-block">批量生成规格</button>
       </form>
     </div>
   </div>
@@ -150,7 +179,7 @@
         <div class="form-row"><div class="form-group"><label>颜色 *</label><input id="eskuColor" required maxlength="50"></div><div class="form-group"><label>尺码 *</label><input id="eskuSize" required maxlength="30"></div></div>
         <div class="form-group"><label>实际库存数量 *</label><input type="number" id="eskuStock" min="0" required><small>客户前台仍只显示“有货 / 少量 / 补货中”。</small></div>
         <small class="form-note">修改只影响当前和之后的选款；已生成的询价单、订单及生产单保留提交时的颜色和尺码记录。</small>
-        <button type="submit" class="btn btn-primary btn-block">保存修改</button>
+        <div class="modal-action-row"><button type="button" class="btn btn-danger" onclick="deleteCurrentSku()">删除规格</button><button type="submit" class="btn btn-primary">保存修改</button></div>
       </form>
     </div>
   </div>
@@ -168,7 +197,8 @@
       <div id="shareProductSummary"></div>
       <img id="shareQr" class="share-qr" alt="商品二维码">
       <div class="form-group"><label>商品专属链接</label><div class="copy-row"><input id="shareUrl" readonly><button class="btn btn-outline" onclick="copyShareUrl()">复制链接</button></div></div>
-      <div class="form-group"><label>朋友圈文案</label><textarea id="shareCopy" rows="10" readonly></textarea></div>
+      <div class="share-template-switch"><button id="shareShortBtn" class="btn btn-sm btn-primary" onclick="selectShareTemplate('short')">简洁版</button><button id="shareDetailBtn" class="btn btn-sm btn-outline" onclick="selectShareTemplate('detail')">详细版</button></div>
+      <div class="form-group"><label>朋友圈文案（可直接修改后复制）</label><textarea id="shareCopy" rows="12"></textarea></div>
       <div class="share-actions"><button class="btn btn-primary" onclick="copyShareCopy()">复制文案</button><button class="btn btn-outline" onclick="downloadQr()">打开二维码</button></div>
     </div>
   </div>

@@ -17,7 +17,7 @@ async function run() {
     assert.equal(health.status, 503);
     const healthJson = await health.json();
     assert.equal(healthJson.data.status, 'configuration_required');
-    assert.equal(healthJson.data.version, '3.2.0');
+    assert.equal(healthJson.data.version, '3.3.0');
 
     const home = await fetch(`${base}/`);
     assert.equal(home.status, 200);
@@ -47,7 +47,12 @@ async function run() {
     const adminHtml = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin.html'), 'utf8');
     assert.match(adminSource, /showEditProduct/);
     assert.match(adminSource, /showEditSku/);
+    assert.match(adminSource, /showBatchSku/);
+    assert.match(adminSource, /deleteCurrentProduct/);
     assert.match(adminHtml, /编辑颜色\/尺码 SKU/);
+    assert.match(adminHtml, /面料\/材质/);
+    const migrationV33 = fs.readFileSync(path.join(__dirname, '..', 'migration-v3.3-product-operations.sql'), 'utf8');
+    assert.match(migrationV33, /add column if not exists material/);
     assert.match(migrationSource, /timezone\('Asia\/Shanghai', now\(\)\)/);
 
     const missing = await fetch(`${base}/api/not-exist`);

@@ -24,7 +24,7 @@ const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/,
 const IMAGE_BUCKET = process.env.SUPABASE_IMAGE_BUCKET || 'product-images';
 const ORDER_STATUSES = ['pending', 'confirmed', 'production', 'shipping', 'delivered', 'cancelled'];
 const INQUIRY_STATUSES = ['pending', 'contacted', 'quoted', 'considering', 'converted', 'lost'];
-const APP_VERSION = '3.2.0';
+const APP_VERSION = '3.3.0';
 const BUSINESS_TIME_ZONE = 'Asia/Shanghai';
 const SHANGHAI_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
 const ORDER_STATUS_LABELS = Object.freeze({
@@ -314,6 +314,9 @@ function normalizeProduct(product, isAdmin = false) {
     style_code: product.style_code,
     category: product.category,
     description: product.description,
+    material: product.material || null,
+    badge_text: product.badge_text || null,
+    customer_note: product.customer_note || null,
     image_url: cover,
     images,
     status: product.status,
@@ -565,7 +568,7 @@ app.get('/api/products', requireDatabase, optionalAuth, asyncRoute(async (req, r
     .order('created_at', { ascending: false });
   if (!canSeeAll) query = query.eq('status', requestedStatus || 'on_sale');
   if (category) query = query.eq('category', category);
-  if (keyword) query = query.or(`name.ilike.%${keyword}%,style_code.ilike.%${keyword}%`);
+  if (keyword) query = query.or(`name.ilike.%${keyword}%,style_code.ilike.%${keyword}%,material.ilike.%${keyword}%,description.ilike.%${keyword}%`);
 
   const { data, error } = await query;
   assertDb(error, '读取商品列表失败');
@@ -585,10 +588,14 @@ app.get('/api/products/:id/share', requireDatabase, asyncRoute(async (req, res) 
   const colors = [...new Set(product.skus.map(sku => sku.color))].join('、') || '详询';
   const sizes = [...new Set(product.skus.map(sku => sku.size))].join('、') || '详询';
   const url = `${requestBaseUrl(req)}/product/${product.id}`;
+  const tag = product.badge_text ? `｜${product.badge_text}` : '';
+  const materialLine = product.material ? `${product.material}${tag}` : `${product.name}${tag}`;
+  const noteLine = product.customer_note ? `\n说明：${product.customer_note}` : '';
+  const copyShort = `${product.style_code}# ${materialLine}\n颜色：${colors}\n尺码：${sizes}${noteLine}\n\n更多图片、现有款式与选款入口：\n${url}\n\n需要报价或确认库存，直接私聊或提交选款单。`;
   const description = product.description ? `${product.description}\n` : '';
-  const copy = `今日新款｜${product.name}\n款号：${product.style_code}\n${description}颜色：${colors}\n尺码：${sizes}\n\n更多现有款式与规格请进入 Eluren 电子选款册：\n${url}\n\n需要报价或确认库存，可提交选款单或直接私聊。`;
+  const copyDetail = `今日新款｜${product.name}${tag}\n款号：${product.style_code}\n${product.material ? `面料：${product.material}\n` : ''}${description}颜色：${colors}\n尺码：${sizes}${noteLine}\n\n更多现有款式与规格请进入 Eluren 电子选款册：\n${url}\n\n需要报价或确认库存，可提交选款单或直接私聊。`;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data=${encodeURIComponent(url)}`;
-  return ok(res, { url, copy, qr_url: qrUrl, product });
+  return ok(res, { url, copy: copyShort, copy_short: copyShort, copy_detail: copyDetail, qr_url: qrUrl, product });
 }));
 
 app.get('/api/products/:id', requireDatabase, optionalAuth, asyncRoute(async (req, res) => {
@@ -608,11 +615,18 @@ app.post('/api/products', requireDatabase, requireJwtSecret, auth, adminOnly, as
   const name = cleanText(req.body.name, 100);
   const category = cleanText(req.body.category, 50);
   const description = cleanText(req.body.description, 1000);
+  const material = cleanText(req.body.material, 120);
+  const badgeText = cleanText(req.body.badge_text, 30);
+  const customerNote = cleanText(req.body.customer_note, 300);
   const styleCode = cleanText(req.body.style_code, 80).toUpperCase() || makeStyleCode();
   if (!name || !category) return fail(res, 400, '商品名称和分类不能为空');
   const { data, error } = await supabase
     .from('products')
-    .insert({ name, style_code: styleCode, category, description: description || null, status: 'on_sale' })
+    .insert({
+      name, style_code: styleCode, category, description: description || null,
+      material: material || null, badge_text: badgeText || null, customer_note: customerNote || null,
+      status: 'on_sale',
+    })
     .select('*')
     .single();
   if (error?.code === '23505') return fail(res, 409, '款号已存在，请更换款号');
@@ -638,6 +652,9 @@ app.patch('/api/products/:id', requireDatabase, requireJwtSecret, auth, adminOnl
     updates.category = category;
   }
   if (req.body.description !== undefined) updates.description = cleanText(req.body.description, 1000) || null;
+  if (req.body.material !== undefined) updates.material = cleanText(req.body.material, 120) || null;
+  if (req.body.badge_text !== undefined) updates.badge_text = cleanText(req.body.badge_text, 30) || null;
+  if (req.body.customer_note !== undefined) updates.customer_note = cleanText(req.body.customer_note, 300) || null;
   if (req.body.status !== undefined) {
     if (!['on_sale', 'off_sale'].includes(req.body.status)) return fail(res, 400, '商品状态无效');
     updates.status = req.body.status;
@@ -703,6 +720,20 @@ app.patch('/api/products/:productId/images/:imageId/cover', requireDatabase, req
   return ok(res, normalizeImage({ ...image, is_cover: true }), '封面已更新');
 }));
 
+app.patch('/api/products/:productId/images/reorder', requireDatabase, requireJwtSecret, auth, adminOnly, asyncRoute(async (req, res) => {
+  const imageIds = Array.isArray(req.body.image_ids) ? req.body.image_ids.map(String) : [];
+  if (!imageIds.length || new Set(imageIds).size !== imageIds.length) return fail(res, 400, '图片顺序数据无效');
+  const { data: images, error } = await supabase.from('product_images').select('id').eq('product_id', req.params.productId);
+  assertDb(error, '读取商品图片失败');
+  const existingIds = new Set((images || []).map(image => image.id));
+  if (imageIds.length !== existingIds.size || imageIds.some(id => !existingIds.has(id))) return fail(res, 400, '图片列表已变化，请刷新后重试');
+  for (let index = 0; index < imageIds.length; index += 1) {
+    const { error: updateError } = await supabase.from('product_images').update({ sort_order: index }).eq('id', imageIds[index]).eq('product_id', req.params.productId);
+    assertDb(updateError, '更新图片顺序失败');
+  }
+  return ok(res, null, '图片顺序已更新');
+}));
+
 app.delete('/api/products/:productId/images/:imageId', requireDatabase, requireJwtSecret, auth, adminOnly, asyncRoute(async (req, res) => {
   const { data: image, error: imageError } = await supabase
     .from('product_images')
@@ -735,6 +766,51 @@ app.delete('/api/products/:productId/images/:imageId', requireDatabase, requireJ
     }
   }
   return ok(res, null, '图片已删除');
+}));
+
+app.post('/api/products/:id/skus/batch', requireDatabase, requireJwtSecret, auth, adminOnly, asyncRoute(async (req, res) => {
+  const colors = [...new Set((Array.isArray(req.body.colors) ? req.body.colors : []).map(value => cleanText(value, 50)).filter(Boolean))];
+  const sizes = [...new Set((Array.isArray(req.body.sizes) ? req.body.sizes : []).map(value => cleanText(value, 30)).filter(Boolean))];
+  const stock = Number.parseInt(req.body.stock, 10);
+  const updateExisting = Boolean(req.body.update_existing);
+  if (!colors.length || !sizes.length) return fail(res, 400, '至少填写一个颜色和一个尺码');
+  if (colors.length * sizes.length > 100) return fail(res, 400, '一次最多处理 100 个颜色尺码组合');
+  if (!Number.isInteger(stock) || stock < 0) return fail(res, 400, '库存必须是非负整数');
+  const { data: product, error: productError } = await supabase.from('products').select('id').eq('id', req.params.id).maybeSingle();
+  assertDb(productError, '检查商品失败');
+  if (!product) return fail(res, 404, '商品不存在');
+  const { data: existingRows, error: existingError } = await supabase.from('product_skus').select('*').eq('product_id', req.params.id);
+  assertDb(existingError, '读取现有规格失败');
+  const existingMap = new Map((existingRows || []).map(row => [`${row.color}\u0000${row.size}`, row]));
+  const toInsert = [];
+  const toUpdate = [];
+  let skipped = 0;
+  for (const color of colors) {
+    for (const size of sizes) {
+      const key = `${color}\u0000${size}`;
+      const existing = existingMap.get(key);
+      if (existing) {
+        if (updateExisting && Number(existing.stock) !== stock) toUpdate.push(existing.id);
+        else skipped += 1;
+        continue;
+      }
+      toInsert.push({
+        product_id: req.params.id,
+        sku_code: `SKU-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`,
+        color, size, stock, wholesale_price: 0, retail_price: null,
+      });
+    }
+  }
+  if (toInsert.length) {
+    const { error: insertError } = await supabase.from('product_skus').insert(toInsert);
+    if (insertError?.code === '23505') return fail(res, 409, '部分颜色尺码组合或 SKU 编码已存在，请刷新后重试');
+    assertDb(insertError, '批量添加规格失败');
+  }
+  for (const id of toUpdate) {
+    const { error: updateError } = await supabase.from('product_skus').update({ stock }).eq('id', id);
+    assertDb(updateError, '批量更新库存失败');
+  }
+  return ok(res, { created: toInsert.length, updated: toUpdate.length, skipped }, `已新增 ${toInsert.length} 个规格，更新 ${toUpdate.length} 个库存`);
 }));
 
 app.post('/api/products/:id/skus', requireDatabase, requireJwtSecret, auth, adminOnly, asyncRoute(async (req, res) => {
@@ -794,6 +870,45 @@ app.patch('/api/skus/:id', requireDatabase, requireJwtSecret, auth, adminOnly, a
   assertDb(error, '更新 SKU 失败');
   if (!data) return fail(res, 404, 'SKU 不存在');
   return ok(res, normalizeSku(data, true), 'SKU 已更新');
+}));
+
+app.delete('/api/skus/:id', requireDatabase, requireJwtSecret, auth, adminOnly, asyncRoute(async (req, res) => {
+  const [{ count: orderCount, error: orderError }, { count: inquiryCount, error: inquiryError }] = await Promise.all([
+    supabase.from('order_items').select('id', { count: 'exact', head: true }).eq('sku_id', req.params.id),
+    supabase.from('inquiry_items').select('id', { count: 'exact', head: true }).eq('sku_id', req.params.id),
+  ]);
+  assertDb(orderError, '检查订单引用失败');
+  assertDb(inquiryError, '检查询价引用失败');
+  if (Number(orderCount || 0) > 0 || Number(inquiryCount || 0) > 0) {
+    return fail(res, 409, '该规格已被历史询价或订单引用，不能删除；可将库存改为 0');
+  }
+  const { data, error } = await supabase.from('product_skus').delete().eq('id', req.params.id).select('id').maybeSingle();
+  assertDb(error, '删除规格失败');
+  if (!data) return fail(res, 404, 'SKU 不存在');
+  return ok(res, null, '规格已删除');
+}));
+
+app.delete('/api/products/:id', requireDatabase, requireJwtSecret, auth, adminOnly, asyncRoute(async (req, res) => {
+  const [{ count: orderCount, error: orderError }, { count: inquiryCount, error: inquiryError }] = await Promise.all([
+    supabase.from('order_items').select('id', { count: 'exact', head: true }).eq('product_id', req.params.id),
+    supabase.from('inquiry_items').select('id', { count: 'exact', head: true }).eq('product_id', req.params.id),
+  ]);
+  assertDb(orderError, '检查订单引用失败');
+  assertDb(inquiryError, '检查询价引用失败');
+  if (Number(orderCount || 0) > 0 || Number(inquiryCount || 0) > 0) {
+    return fail(res, 409, '该商品已被历史询价或订单引用，不能删除；请改为下架');
+  }
+  const { data: images, error: imagesError } = await supabase.from('product_images').select('storage_path').eq('product_id', req.params.id);
+  assertDb(imagesError, '读取商品图片失败');
+  const storagePaths = (images || []).map(image => image.storage_path).filter(Boolean);
+  if (storagePaths.length) {
+    const { error: storageError } = await supabase.storage.from(IMAGE_BUCKET).remove(storagePaths);
+    assertDb(storageError, '删除商品图片文件失败');
+  }
+  const { data, error } = await supabase.from('products').delete().eq('id', req.params.id).select('id').maybeSingle();
+  assertDb(error, '删除商品失败');
+  if (!data) return fail(res, 404, '商品不存在');
+  return ok(res, null, '商品已删除');
 }));
 
 // =========================
