@@ -208,7 +208,7 @@ begin
 
   insert into public.inquiries (inquiry_no, user_id, customer_name, customer_phone, customer_company, shipping_address, total_quantity, status, remark)
   values (
-    'INQ-' || to_char(current_date, 'YYYYMMDD') || '-' || lpad(nextval('public.inquiry_no_seq')::text, 6, '0'),
+    'INQ-' || to_char(timezone('Asia/Shanghai', now()), 'YYYYMMDD') || '-' || lpad(nextval('public.inquiry_no_seq')::text, 6, '0'),
     v_user.id, v_user.name, v_user.phone, v_user.company,
     nullif(btrim(coalesce(p_shipping_address, v_user.address, '')), ''),
     v_total_quantity, 'pending', nullif(btrim(coalesce(p_remark, '')), '')
@@ -290,7 +290,7 @@ begin
 
   insert into public.orders (order_no, user_id, customer_name, customer_phone, customer_company, shipping_address, total_amount, total_quantity, status, remark, source_inquiry_id)
   values (
-    'ORD-' || to_char(current_date, 'YYYYMMDD') || '-' || lpad(nextval('public.order_no_seq')::text, 6, '0'),
+    'ORD-' || to_char(timezone('Asia/Shanghai', now()), 'YYYYMMDD') || '-' || lpad(nextval('public.order_no_seq')::text, 6, '0'),
     v_inquiry.user_id, v_inquiry.customer_name, v_inquiry.customer_phone, v_inquiry.customer_company,
     coalesce(v_inquiry.shipping_address, ''), 0, v_inquiry.total_quantity, 'pending', v_inquiry.remark, v_inquiry.id
   ) returning * into v_order;
@@ -339,7 +339,7 @@ begin
   end if;
   select coalesce(sum(quantity), 0)::integer into v_total_quantity from public.cart_items where user_id = p_user_id;
   insert into public.orders (order_no, user_id, customer_name, customer_phone, customer_company, shipping_address, total_amount, total_quantity, status, remark)
-  values ('ORD-' || to_char(current_date, 'YYYYMMDD') || '-' || lpad(nextval('public.order_no_seq')::text, 6, '0'), v_user.id, v_user.name, v_user.phone, v_user.company, coalesce(p_shipping_address, ''), 0, v_total_quantity, 'pending', p_remark)
+  values ('ORD-' || to_char(timezone('Asia/Shanghai', now()), 'YYYYMMDD') || '-' || lpad(nextval('public.order_no_seq')::text, 6, '0'), v_user.id, v_user.name, v_user.phone, v_user.company, coalesce(p_shipping_address, ''), 0, v_total_quantity, 'pending', p_remark)
   returning * into v_order;
   insert into public.order_items (order_id, product_id, product_name, sku_id, sku_code, color, size, quantity, unit_price, subtotal)
   select v_order.id, p.id, p.name, s.id, s.sku_code, s.color, s.size, c.quantity, 0, 0

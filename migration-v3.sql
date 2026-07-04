@@ -195,7 +195,7 @@ begin
     inquiry_no, user_id, customer_name, customer_phone, customer_company,
     shipping_address, total_quantity, status, remark
   ) values (
-    'INQ-' || to_char(current_date, 'YYYYMMDD') || '-' || lpad(nextval('public.inquiry_no_seq')::text, 6, '0'),
+    'INQ-' || to_char(timezone('Asia/Shanghai', now()), 'YYYYMMDD') || '-' || lpad(nextval('public.inquiry_no_seq')::text, 6, '0'),
     v_user.id, v_user.name, v_user.phone, v_user.company,
     nullif(btrim(coalesce(p_shipping_address, v_user.address, '')), ''),
     v_total_quantity, 'pending', nullif(btrim(coalesce(p_remark, '')), '')
@@ -330,7 +330,7 @@ begin
     order_no, user_id, customer_name, customer_phone, customer_company,
     shipping_address, total_amount, total_quantity, status, remark, source_inquiry_id
   ) values (
-    'ORD-' || to_char(current_date, 'YYYYMMDD') || '-' || lpad(nextval('public.order_no_seq')::text, 6, '0'),
+    'ORD-' || to_char(timezone('Asia/Shanghai', now()), 'YYYYMMDD') || '-' || lpad(nextval('public.order_no_seq')::text, 6, '0'),
     v_inquiry.user_id, v_inquiry.customer_name, v_inquiry.customer_phone, v_inquiry.customer_company,
     coalesce(v_inquiry.shipping_address, ''), 0, v_inquiry.total_quantity, 'pending', v_inquiry.remark, v_inquiry.id
   ) returning * into v_order;

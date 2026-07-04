@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { app } = require('../server');
 
 async function run() {
@@ -15,7 +17,7 @@ async function run() {
     assert.equal(health.status, 503);
     const healthJson = await health.json();
     assert.equal(healthJson.data.status, 'configuration_required');
-    assert.equal(healthJson.data.version, '3.0.0');
+    assert.equal(healthJson.data.version, '3.1.0');
 
     const home = await fetch(`${base}/`);
     assert.equal(home.status, 200);
@@ -33,6 +35,13 @@ async function run() {
     assert.equal(products.status, 503);
     const productsJson = await products.json();
     assert.equal(productsJson.code, 1);
+
+    const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+    const migrationSource = fs.readFileSync(path.join(__dirname, '..', 'migration-v3.1-timezone.sql'), 'utf8');
+    assert.match(serverSource, /Asia\/Shanghai/);
+    assert.match(serverSource, /delivered:\s*'已送达'/);
+    assert.match(serverSource, /formatShanghaiDateTime\(\)/);
+    assert.match(migrationSource, /timezone\('Asia\/Shanghai', now\(\)\)/);
 
     const missing = await fetch(`${base}/api/not-exist`);
     assert.equal(missing.status, 404);

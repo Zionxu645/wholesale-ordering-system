@@ -24,6 +24,17 @@ const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/,
 const IMAGE_BUCKET = process.env.SUPABASE_IMAGE_BUCKET || 'product-images';
 const ORDER_STATUSES = ['pending', 'confirmed', 'production', 'shipping', 'delivered', 'cancelled'];
 const INQUIRY_STATUSES = ['pending', 'contacted', 'quoted', 'considering', 'converted', 'lost'];
+const APP_VERSION = '3.1.0';
+const BUSINESS_TIME_ZONE = 'Asia/Shanghai';
+const SHANGHAI_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
+const ORDER_STATUS_LABELS = Object.freeze({
+  pending: '待确认',
+  confirmed: '已确认',
+  production: '生产中',
+  shipping: '发货中',
+  delivered: '已送达',
+  cancelled: '已取消',
+});
 
 let supabase = null;
 let supabaseInitError = null;
@@ -84,6 +95,58 @@ function asyncRoute(handler) {
       next(error);
     }
   };
+}
+
+function shanghaiDateParts(date = new Date()) {
+  const values = {};
+  for (const part of new Intl.DateTimeFormat('en-CA', {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date)) {
+    if (part.type !== 'literal') values[part.type] = part.value;
+  }
+  return {
+    year: Number(values.year),
+    month: Number(values.month),
+    day: Number(values.day),
+    yearText: values.year,
+    monthText: values.month,
+    dayText: values.day,
+  };
+}
+
+function shanghaiDateCode(date = new Date()) {
+  const parts = shanghaiDateParts(date);
+  return `${parts.yearText}${parts.monthText}${parts.dayText}`;
+}
+
+function shanghaiDayStartUtc(date = new Date()) {
+  const parts = shanghaiDateParts(date);
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day) - SHANGHAI_UTC_OFFSET_MS);
+}
+
+function shanghaiMonthStartUtc(date = new Date()) {
+  const parts = shanghaiDateParts(date);
+  return new Date(Date.UTC(parts.year, parts.month - 1, 1) - SHANGHAI_UTC_OFFSET_MS);
+}
+
+function formatShanghaiDateTime(date = new Date()) {
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
+function orderStatusLabel(status) {
+  return ORDER_STATUS_LABELS[status] || status || '未知';
 }
 
 function requireDatabase(req, res, next) {
@@ -333,7 +396,7 @@ function normalizeInquiry(inquiry) {
 }
 
 function makeStyleCode() {
-  const date = new Date().toISOString().slice(2, 10).replaceAll('-', '');
+  const date = shanghaiDateCode().slice(2);
   const suffix = crypto.randomBytes(2).toString('hex').toUpperCase();
   return `EL-${date}-${suffix}`;
 }
@@ -409,7 +472,7 @@ app.get('/api/health', asyncRoute(async (_req, res) => {
       code: 1,
       data: {
         status: 'configuration_required',
-        version: '3.0.0',
+        version: APP_VERSION,
         database_configured: Boolean(supabase),
         jwt_configured: JWT_SECRET.length >= 32,
         time: new Date().toISOString(),
@@ -421,13 +484,13 @@ app.get('/api/health', asyncRoute(async (_req, res) => {
   if (error) {
     return res.status(503).json({
       code: 1,
-      data: { status: 'database_unavailable', version: '3.0.0', time: new Date().toISOString() },
+      data: { status: 'database_unavailable', version: APP_VERSION, time: new Date().toISOString() },
       message: '数据库连接失败，或尚未执行 schema.sql / migration-v3.sql',
     });
   }
   return ok(res, {
     status: 'ok',
-    version: '3.0.0',
+    version: APP_VERSION,
     database_configured: true,
     jwt_configured: true,
     image_bucket: IMAGE_BUCKET,
@@ -828,9 +891,8 @@ app.post('/api/customers', requireDatabase, requireJwtSecret, auth, adminOnly, a
 }));
 
 async function getDashboardData() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const today = shanghaiDayStartUtc();
+  const monthStart = shanghaiMonthStartUtc();
   const [inquiriesResult, ordersResult, productsResult, customersResult, lowStockResult] = await Promise.all([
     supabase.from('inquiries').select('id, inquiry_no, customer_name, status, total_quantity, created_at').order('created_at', { ascending: false }),
     supabase.from('orders').select('id, status, total_quantity, created_at'),
@@ -881,10 +943,12 @@ app.get('/api/orders/:id/production', requireDatabase, requireJwtSecret, auth, a
     customer: { name: order.customer_name, phone: order.customer_phone },
     shipping_address: order.shipping_address,
     status: order.status,
+    status_label: orderStatusLabel(order.status),
     remark: order.remark,
     total_quantity: order.total_quantity,
     items: order.items,
     print_time: new Date().toISOString(),
+    print_time_local: formatShanghaiDateTime(),
   });
 }));
 
@@ -906,7 +970,7 @@ app.get('/print/:id', requireDatabase, requireJwtSecret, asyncRoute(async (req, 
   const order = await fetchOrder(req.params.id);
   if (!order) return res.status(404).send('<h1>订单不存在</h1>');
   const rows = order.items.map(item => `<tr><td>${escapeHtml(item.product_name)}</td><td>${escapeHtml(item.sku_code)}</td><td>${escapeHtml(item.color)}</td><td>${escapeHtml(item.size)}</td><td>${item.quantity}</td></tr>`).join('');
-  return res.type('html').send(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>生产单 ${escapeHtml(order.order_no)}</title><style>body{font-family:Arial,"Microsoft YaHei",sans-serif;margin:24px;color:#111}h1{text-align:center;margin:0 0 20px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px}.full{grid-column:1/3}table{width:100%;border-collapse:collapse}th,td{border:1px solid #222;padding:9px;text-align:center}th{background:#eee}.footer{margin-top:20px;display:flex;justify-content:space-between}@media print{.no-print{display:none}body{margin:0}}</style></head><body><button class="no-print" onclick="window.print()">打印</button><h1>服装生产单</h1><div class="meta"><div><strong>订单号：</strong>${escapeHtml(order.order_no)}</div><div><strong>状态：</strong>${escapeHtml(order.status)}</div><div><strong>客户：</strong>${escapeHtml(order.customer_name)}</div><div><strong>电话：</strong>${escapeHtml(order.customer_phone)}</div><div class="full"><strong>收货地址：</strong>${escapeHtml(order.shipping_address || '未填写')}</div><div class="full"><strong>备注：</strong>${escapeHtml(order.remark || '无')}</div></div><table><thead><tr><th>商品</th><th>SKU</th><th>颜色</th><th>尺码</th><th>生产数量</th></tr></thead><tbody>${rows}</tbody></table><div class="footer"><strong>总件数：${order.total_quantity}</strong><span>打印时间：${escapeHtml(new Date().toLocaleString('zh-CN'))}</span></div><script>window.addEventListener('load',()=>window.print())</script></body></html>`);
+  return res.type('html').send(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>生产单 ${escapeHtml(order.order_no)}</title><style>body{font-family:Arial,"Microsoft YaHei",sans-serif;margin:24px;color:#111}h1{text-align:center;margin:0 0 20px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px}.full{grid-column:1/3}table{width:100%;border-collapse:collapse}th,td{border:1px solid #222;padding:9px;text-align:center}th{background:#eee}.footer{margin-top:20px;display:flex;justify-content:space-between}@media print{.no-print{display:none}body{margin:0}}</style></head><body><button class="no-print" onclick="window.print()">打印</button><h1>服装生产单</h1><div class="meta"><div><strong>订单号：</strong>${escapeHtml(order.order_no)}</div><div><strong>状态：</strong>${escapeHtml(orderStatusLabel(order.status))}</div><div><strong>客户：</strong>${escapeHtml(order.customer_name)}</div><div><strong>电话：</strong>${escapeHtml(order.customer_phone)}</div><div class="full"><strong>收货地址：</strong>${escapeHtml(order.shipping_address || '未填写')}</div><div class="full"><strong>备注：</strong>${escapeHtml(order.remark || '无')}</div></div><table><thead><tr><th>商品</th><th>SKU</th><th>颜色</th><th>尺码</th><th>生产数量</th></tr></thead><tbody>${rows}</tbody></table><div class="footer"><strong>总件数：${order.total_quantity}</strong><span>打印时间：${escapeHtml(formatShanghaiDateTime())}</span></div><script>window.addEventListener('load',()=>window.print())</script></body></html>`);
 }));
 
 app.get('/api/schema', requireJwtSecret, auth, adminOnly, asyncRoute(async (_req, res) => {

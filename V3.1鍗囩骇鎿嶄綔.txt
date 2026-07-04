@@ -1,0 +1,10 @@
+Eluren V3.1 升级顺序
+
+1. Supabase SQL Editor 运行 migration-v3.1-timezone.sql。
+2. 看到 Success. No rows returned 后，再替换 GitHub 仓库代码。
+3. GitHub Desktop 提交并 Push origin。
+4. 等待 Render 最新部署显示 Live。
+5. 新建测试询价并转为正式订单。
+6. 检查：编号日期为中国当天；生产单状态为中文；打印时间为北京时间。
+
+说明：旧单号不会自动更改。
