@@ -1,6 +1,6 @@
 {
   "name": "wholesale-ordering-system",
-  "version": "3.3.0",
+  "version": "3.3.1",
   "private": true,
   "description": "Eluren 服装电子选款册、询价与订单管理系统（Express + Supabase）",
   "main": "server.js",
@@ -8,8 +8,8 @@
     "node": ">=22 <23"
   },
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
+    "start": "node -r ./share-copy-patch.js server.js",
+    "dev": "node -r ./share-copy-patch.js --watch server.js",
     "check": "node --check server.js && node --check public/assets/app.js && node --check public/assets/admin.js",
     "test": "node tests/smoke.js"
   },
