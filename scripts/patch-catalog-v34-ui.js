@@ -28,11 +28,13 @@ admin = admin
   .replace(
     '维护商品资料、图片、颜色尺码和库存，一键生成适合朋友圈的发布文案。',
     '维护商品资料、分类、前台展示位置、图片、颜色尺码和库存。',
-  )
-  .replace(
+  );
+if (!admin.includes('/assets/catalog-admin.js')) {
+  admin = admin.replace(
     '<script src="/assets/admin.js"></script>',
     '<script src="/assets/admin.js"></script>\n  <script src="/assets/catalog-admin.js"></script>',
   );
+}
 write('public/admin.html', admin);
 
 let index = read('public/index.html');
