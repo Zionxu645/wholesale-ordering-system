@@ -19,7 +19,7 @@ let server = read('server.js');
 if (!server.includes("Permissions-Policy")) {
   server = server.replace(
     "  res.setHeader('Referrer-Policy', 'same-origin');",
-    "  res.setHeader('Referrer-Policy', 'same-origin');\n  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');\n  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');\n  res.setHeader('Content-Security-Policy', \"default-src 'self'; img-src 'self' https: data:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self' data:; frame-ancestors 'self'; base-uri 'self'; form-action 'self'\");",
+    "  res.setHeader('Referrer-Policy', 'same-origin');\n  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');\n  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');\n  res.setHeader('Content-Security-Policy', \"default-src 'self'; img-src 'self' https: data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self' data:; frame-ancestors 'self'; base-uri 'self'; form-action 'self'\");",
   );
   write('server.js', server);
 }
