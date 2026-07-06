@@ -36,11 +36,17 @@ const replacement = `  const colorText = colors === '详询' ? colors : colors.r
 
 const blockPattern = /  const noteLine =[\s\S]*?  const qrUrl =/;
 
-if (!blockPattern.test(source)) {
-  console.log('[postinstall] 朋友圈文案代码已是目标版本或目标代码结构已变化，跳过。');
-  process.exit(0);
+if (blockPattern.test(source)) {
+  source = source.replace(blockPattern, replacement);
 }
 
-source = source.replace(blockPattern, replacement);
+const marker = '  const copyShort = [';
+const declarationNeedle = '  const noteLine = product.customer_note ?';
+if (source.includes(marker) && !source.includes(declarationNeedle)) {
+  const placeholder = '$' + '{product.customer_note}';
+  const declaration = "  const noteLine = product.customer_note ? `\\n说明：" + placeholder + "` : '';\n";
+  source = source.replace(marker, declaration + marker);
+}
+
 fs.writeFileSync(serverPath, source, 'utf8');
-console.log('[postinstall] 已将简洁版朋友圈素材改为指定短文案格式。');
+console.log('[postinstall] 已修复并更新简洁版朋友圈素材。');
