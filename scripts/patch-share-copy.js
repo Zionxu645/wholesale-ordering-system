@@ -6,28 +6,41 @@ const path = require('path');
 const serverPath = path.join(__dirname, '..', 'server.js');
 let source = fs.readFileSync(serverPath, 'utf8');
 
-const replacement = `  const copyShort = [
-    \`\${product.style_code}# \${product.material || product.name}\${tag}\`,
-    \`颜色：\${colors}\`,
-    \`尺码：\${sizes}\`,
+const replacement = `  const colorText = colors === '详询' ? colors : colors.replaceAll('、', ' ');
+  const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL'];
+  const sizeList = [...new Set(product.skus.map(sku => String(sku.size || '').trim().toUpperCase()).filter(Boolean))]
+    .sort((a, b) => {
+      const aIndex = sizeOrder.indexOf(a);
+      const bIndex = sizeOrder.indexOf(b);
+      if (aIndex === -1 && bIndex === -1) return a.localeCompare(b, 'zh-CN');
+      if (aIndex === -1) return 1;
+      if (bIndex === -1) return -1;
+      return aIndex - bIndex;
+    });
+  const canUseRange = sizeList.length > 1 && sizeList.every(size => sizeOrder.includes(size));
+  const sizeText = !sizeList.length
+    ? '详询'
+    : canUseRange
+      ? \`\${sizeList[0]}-\${sizeList[sizeList.length - 1]}\`
+      : sizeList.join(' ');
+  const copyShort = [
+    materialLine,
+    '',
+    \`\${product.style_code}# \${colorText} \${sizeText}\`,
     url,
+    '欢迎选购～',
   ].join('\\n');
-  const copyDetail = [
-    \`\${product.style_code}# \${product.name}\${tag}\`,
-    product.material ? \`面料：\${product.material}\` : '',
-    \`颜色：\${colors}\`,
-    \`尺码：\${sizes}\`,
-    url,
-  ].filter(Boolean).join('\\n');
+  const description = product.description ? \`\${product.description}\\n\` : '';
+  const copyDetail = \`今日新款｜\${product.name}\${tag}\\n款号：\${product.style_code}\\n\${product.material ? \`面料：\${product.material}\\n\` : ''}\${description}颜色：\${colors}\\n尺码：\${sizes}\${noteLine}\\n\\n更多现有款式与规格请进入 Eluren 电子选款册：\\n\${url}\\n\\n需要报价或确认库存，可提交选款单或直接私聊。\`;
   const qrUrl =`;
 
 const blockPattern = /  const noteLine =[\s\S]*?  const qrUrl =/;
 
 if (!blockPattern.test(source)) {
-  console.log('[postinstall] 朋友圈文案代码已是短版或目标代码结构已变化，跳过。');
+  console.log('[postinstall] 朋友圈文案代码已是目标版本或目标代码结构已变化，跳过。');
   process.exit(0);
 }
 
 source = source.replace(blockPattern, replacement);
 fs.writeFileSync(serverPath, source, 'utf8');
-console.log('[postinstall] 已将朋友圈素材改为短文案。');
+console.log('[postinstall] 已将简洁版朋友圈素材改为指定短文案格式。');
